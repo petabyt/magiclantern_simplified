@@ -65,7 +65,9 @@ def main():
                                                  verbose=args.verbose):
             offset = p - a
             s = 1024
-            if offset == last_offset and ap == last_ap and xn == last_xn and texcb == last_texcb and a == vstart + size:
+            if offset == last_offset and ap == last_ap \
+               and xn == last_xn and texcb == last_texcb \
+               and a == vstart + size:
                 size += s
             else:
                 if last_offset is not None:
@@ -134,17 +136,23 @@ def walk_ttbrs(ROM, ttbrs, verbose=False):
         if not ttbr:
             continue
         for address in range(0, 1<<32, 1024):
-            tbl = 1 if address >> (32-7) else 0
+            tbl = 0
+            if address >> (32-7):
+                tbl = 1
             if tbl != i:
                 continue
 
-            base_mask = 0xffffc000 if i == 1 else 0xffffff80
+            base_mask = 0xffffff80
+            if i == 1:
+                base_mask = 0xffffc000
+
             entry_addr = (ttbr & base_mask) | ((address >> 18) & 0x3ffc)
             #~ print hex(ttbr), hex(ttbr & base_mask), hex((address >> 18) & 0x3ffc), hex(entry_addr)
             desc = getLongLE(ROM, entry_addr - rombase)
             type = desc & 3
             if verbose:
-                print(("%08X [%08X]: %08X %s" % (address, entry_addr, desc, bin(type|4)[3:])), end=' ')
+                print(("%08X [%08X]: %08X %s"
+                       % (address, entry_addr, desc, bin(type|4)[3:])), end=' ')
 
             #~ print hex(address), hex(entry_addr), hex(desc), type
             if type == 1:
@@ -155,7 +163,8 @@ def walk_ttbrs(ROM, ttbrs, verbose=False):
                 l2_entry = table_addr | ((address >> 10) & 0x3fc);
                 desc = getLongLE(ROM, l2_entry - rombase)
                 if verbose:
-                    print("L2 table=%08X domain=%X entry=%X" % (table_addr, domain, l2_entry), end=' ')
+                    print("L2 table=%08X domain=%X entry=%X"
+                          % (table_addr, domain, l2_entry), end=' ')
 
                 ap = ((desc >> 4) & 3) | ((desc >> 7) & 4);
                 typ = (desc & 3)
