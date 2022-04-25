@@ -11,7 +11,9 @@ import os
 import sys
 import argparse
 from struct import unpack
+from collections import namedtuple
 
+PageAttributes = namedtuple("PageAttributes", "virt_address phys_address size access_permissions texcb xn")
 
 def main():
     args = parse_args()
@@ -59,7 +61,7 @@ def main():
         last_xn = None
         last_texcb = None
 
-        # address, phys_addr, page_size, ap, texcb, xn
+        # address, phys_addr, page_size, access_permissions, texcb, xn
         for a, p, s, ap, texcb, xn in walk_ttbrs(ROM,
                                                  cam_ttbrs["R5"][cpu_id],
                                                  verbose=args.verbose):
@@ -129,6 +131,11 @@ def extract32(value, start, length):
 
 
 def walk_ttbrs(ROM, ttbrs, verbose=False):
+    # we assume "short-descriptor translation table format",
+    # which may not be future proof.
+    #
+    # See ARM manual, B3.5.1 Short-descriptor translation table format descriptors
+
     rombase = 0xE0000000
     for i, ttbr in enumerate(ttbrs):
         print("TTBR%d: %08X" % (i, ttbr))
@@ -136,89 +143,120 @@ def walk_ttbrs(ROM, ttbrs, verbose=False):
         if not ttbr:
             continue
         for address in range(0, 1<<32, 1024):
-            tbl = 0
+            table = 0
             if address >> (32-7):
-                tbl = 1
-            if tbl != i:
+                # TODO this shouldn't hard-code 7,
+                # the ttbr0/1 split can vary (I think??)
+                table = 1
+            if table != i:
                 continue
 
             base_mask = 0xffffff80
             if i == 1:
                 base_mask = 0xffffc000
 
-            entry_addr = (ttbr & base_mask) | ((address >> 18) & 0x3ffc)
-            #~ print hex(ttbr), hex(ttbr & base_mask), hex((address >> 18) & 0x3ffc), hex(entry_addr)
-            desc = getLongLE(ROM, entry_addr - rombase)
-            type = desc & 3
-            if verbose:
-                print(("%08X [%08X]: %08X %s"
-                       % (address, entry_addr, desc, bin(type|4)[3:])), end=' ')
-
-            #~ print hex(address), hex(entry_addr), hex(desc), type
-            if type == 1:
-                domain = (desc >> 5) & 0x0f
-                sbz = desc & 0x1E
-                assert sbz == 0
-                table_addr = (desc & 0xfffffc00)
-                l2_entry = table_addr | ((address >> 10) & 0x3fc);
-                desc = getLongLE(ROM, l2_entry - rombase)
-                if verbose:
-                    print("L2 table=%08X domain=%X entry=%X"
-                          % (table_addr, domain, l2_entry), end=' ')
-
-                ap = ((desc >> 4) & 3) | ((desc >> 7) & 4);
-                typ = (desc & 3)
-                if typ == 0:
-                    if verbose:
-                        print(" -> fault")
-                    continue
-                elif typ == 1:
-                    page_addr = (desc & 0xffff0000)
-                    page_size = 0x10000;
-                    phys_addr = page_addr | (address & 0xffff);
-                    acc = desc & 0xffff
-                    xn = desc & (1 << 15);
-                    texcb = ((desc >> 2) & 3) | (desc >> 10) & 0x1C
-                    if verbose:
-                        print(" -> 64K page at %X -> %X" % (page_addr, phys_addr))
-                elif typ == 2 or typ == 3:
-                    page_addr = (desc & 0xfffff000)
-                    page_size = 0x1000;
-                    phys_addr = page_addr | (address & 0xfff);
-                    acc = desc & 0xfff
-                    xn = desc & 1;
-                    texcb = ((desc >> 2) & 3) | (desc >> 4) & 0x1C
-                    if verbose:
-                        print(" -> 4K page at %X -> %X" % (page_addr, phys_addr))
-                ap = ((desc >> 4) & 3) | ((desc >> 7) & 4);
-            elif type == 2:
-                if desc & (1 << 18):
-                    page_addr = (desc & 0xff000000)
-                    page_addr |= extract32(desc, 20, 4) << 32;
-                    page_addr |= extract32(desc, 5, 4) << 36;
-                    phys_addr = page_addr | (address & 0x00ffffff);
-                    page_size = 0x1000000;
-                    acc = desc & 0xffffff
-                    if verbose:
-                        print("Supersection", end=' ')
-                        print(" -> 16M page at %X -> %X" % (page_addr, phys_addr))
-                else:
-                    page_addr = (desc & 0xfff00000)
-                    page_size = 0x100000;
-                    phys_addr = page_addr | (address & 0x000fffff);
-                    acc = desc & 0xfffff
-                    if verbose:
-                        print("Section", end=' ')
-                        print(" -> 1M page at %X -> %X" % (page_addr, phys_addr))
-                ap = ((desc >> 10) & 3) | ((desc >> 13) & 4);
-                texcb = ((desc >> 2) & 3) | (desc >> 10) & 0x1C
-                xn = (desc >> 4) & 1
-            else:
-                if verbose:
-                    print("Fault")
+            entry_address = (ttbr & base_mask) | ((address >> 18) & 0x3ffc)
+            #~ print hex(ttbr), hex(ttbr & base_mask), hex((address >> 18) & 0x3ffc), hex(entry_address)
+            desc = getLongLE(ROM, entry_address - rombase)
+            page_attributes = parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=verbose)
+            if not page_attributes:
                 continue
 
-            yield address, phys_addr, page_size, ap, texcb, xn
+            yield page_attributes
+
+
+def parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=False):
+    desc_type = desc & 3
+    if verbose:
+        print(("%08X [%08X]: %08X %s"
+               % (address, entry_address, desc, bin(desc_type|4)[3:])), end=' ')
+
+    #~ print hex(address), hex(entry_address), hex(desc), type
+    if desc_type == 1: # Page table
+        page_attributes = parse_page_table(ROM, rombase, desc, address, verbose=verbose)
+    elif desc_type == 2: # Section or Supersection
+        page_attributes = parse_section(ROM, rombase, desc, address, verbose=verbose)
+    else: # 0, explicit fault, or 3, fault if implementation does not support PXN
+        if verbose:
+            print("Fault")
+        return None
+
+    return page_attributes
+
+
+def parse_section(ROM, rombase, desc, address, verbose=False):
+    """
+    Parses the given descriptor, which should be type 2 / Section or Supersection.
+
+    Returns the attributes for the page it resolves to.
+    """
+    if desc & (1 << 18):
+        page_addr = (desc & 0xff000000)
+        page_addr |= extract32(desc, 20, 4) << 32;
+        page_addr |= extract32(desc, 5, 4) << 36;
+        phys_addr = page_addr | (address & 0x00ffffff);
+        page_size = 0x1000000;
+        acc = desc & 0xffffff
+        if verbose:
+            print("Supersection", end=' ')
+            print(" -> 16M page at %X -> %X" % (page_addr, phys_addr))
+    else:
+        page_addr = (desc & 0xfff00000)
+        page_size = 0x100000;
+        phys_addr = page_addr | (address & 0x000fffff);
+        acc = desc & 0xfffff
+        if verbose:
+            print("Section", end=' ')
+            print(" -> 1M page at %X -> %X" % (page_addr, phys_addr))
+    ap = ((desc >> 10) & 3) | ((desc >> 13) & 4);
+    texcb = ((desc >> 2) & 3) | (desc >> 10) & 0x1C
+    xn = (desc >> 4) & 1
+    return PageAttributes(address, phys_addr, page_size, ap, texcb, xn)
+
+
+def parse_page_table(ROM, rombase, desc, address, verbose=False):
+    """
+    Parses the given descriptor, which should be type 1 / page table.
+
+    Returns the attributes for the page it resolves to, or None
+    if it maps to Fault.
+    """
+    domain = (desc >> 5) & 0x0f
+    sbz = desc & 0x1E
+    assert sbz == 0
+    table_addr = (desc & 0xfffffc00)
+    l2_entry = table_addr | ((address >> 10) & 0x3fc);
+    desc = getLongLE(ROM, l2_entry - rombase)
+    if verbose:
+        print("L2 table=%08X domain=%X entry=%X"
+              % (table_addr, domain, l2_entry), end=' ')
+
+    ap = ((desc >> 4) & 3) | ((desc >> 7) & 4);
+    typ = (desc & 3)
+    if typ == 0:
+        if verbose:
+            print(" -> fault")
+        return None
+    elif typ == 1:
+        page_addr = (desc & 0xffff0000)
+        page_size = 0x10000;
+        phys_addr = page_addr | (address & 0xffff);
+        acc = desc & 0xffff
+        xn = desc & (1 << 15);
+        texcb = ((desc >> 2) & 3) | (desc >> 10) & 0x1C
+        if verbose:
+            print(" -> 64K page at %X -> %X" % (page_addr, phys_addr))
+    elif typ == 2 or typ == 3:
+        page_addr = (desc & 0xfffff000)
+        page_size = 0x1000;
+        phys_addr = page_addr | (address & 0xfff);
+        acc = desc & 0xfff
+        xn = desc & 1;
+        texcb = ((desc >> 2) & 3) | (desc >> 4) & 0x1C
+        if verbose:
+            print(" -> 4K page at %X -> %X" % (page_addr, phys_addr))
+    ap = ((desc >> 4) & 3) | ((desc >> 7) & 4);
+    return PageAttributes(address, phys_addr, page_size, ap, texcb, xn)
 
 
 def decode_ap(ap):
