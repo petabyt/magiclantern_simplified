@@ -166,6 +166,7 @@ def walk_ttbrs(ROM, ttbrs, verbose=False):
 
 
 def parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=False):
+    # last two bits hold the type, see B3.5.1
     desc_type = desc & 3
     if verbose:
         print(("%08X [%08X]: %08X %s"
@@ -190,19 +191,24 @@ def parse_section(ROM, rombase, desc, address, verbose=False):
 
     Returns the attributes for the page it resolves to.
     """
-    if desc & (1 << 18):
+    # bit 18 determines section or supersection
+    if desc & (1 << 18): # supersection
+        # supersection address is encoded split over the word,
+        # and may use 40-bit physical addresses (LPAE)
         page_addr = (desc & 0xff000000)
         page_addr |= extract32(desc, 20, 4) << 32;
         page_addr |= extract32(desc, 5, 4) << 36;
         phys_addr = page_addr | (address & 0x00ffffff);
-        page_size = 0x1000000;
+        page_size = 0x1000000; # 16MB pages
         acc = desc & 0xffffff
         if verbose:
+            if page_addr > 0xffffffff:
+                print("INFO: >32-bit address found")
             print("Supersection", end=' ')
             print(" -> 16M page at %X -> %X" % (page_addr, phys_addr))
-    else:
+    else: # section
         page_addr = (desc & 0xfff00000)
-        page_size = 0x100000;
+        page_size = 0x100000; # 1MB pages
         phys_addr = page_addr | (address & 0x000fffff);
         acc = desc & 0xfffff
         if verbose:
