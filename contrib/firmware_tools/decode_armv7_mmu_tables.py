@@ -10,7 +10,8 @@
 import os
 import sys
 import argparse
-from struct import unpack
+import functools
+import struct
 from collections import namedtuple
 
 PageAttributes = namedtuple("PageAttributes", "virt_address phys_address size access_permissions texcb xn")
@@ -62,7 +63,7 @@ def main():
         last_texcb = None
 
         # address, phys_addr, page_size, access_permissions, texcb, xn
-        for a, p, s, ap, texcb, xn in walk_ttbrs(data,
+        for a, p, s, ap, texcb, xn in walk_ttbrs(data, args.data_base_address,
                                                  cam_ttbrs["R5"][cpu_id],
                                                  verbose=args.verbose):
             offset = p - a
@@ -100,6 +101,9 @@ def parse_args():
 
     parser.add_argument("datafile",
                         help="path to ROM or mem dump to attempt MMU table parsing")
+    parser.add_argument("-b", "--data-base-address",
+                        default=0xe0000000,
+                        type=functools.partial(int, base=0))
     parser.add_argument("-v", "--verbose",
                         default=False,
                         action="store_true")
@@ -114,11 +118,14 @@ def parse_args():
 
 
 def getLongLE(d, address):
-   return unpack('<L',d[address:address+4])[0]
+    assert address > 0, "Expecting positive address, address was: 0x%x.  " \
+                        "Was --data-base-address too high?" % address
+    assert address < len(d), "Expecting address < len, was --data-base-address too low?"
+    return struct.unpack('<L',d[address:address+4])[0]
 
 
 def getByte(d, address):
-   return ord(d[address])
+    return ord(d[address])
 
 
 def getString(d, address):
@@ -130,13 +137,12 @@ def extract32(value, start, length):
     return (value >> start) & (0xFFFFFFFF >> (32 - length));
 
 
-def walk_ttbrs(data, ttbrs, verbose=False):
+def walk_ttbrs(data, data_base_address, ttbrs, verbose=False):
     # we assume "short-descriptor translation table format",
     # which may not be future proof.
     #
     # See ARM manual, B3.5.1 Short-descriptor translation table format descriptors
 
-    rombase = 0xE0000000
     for i, ttbr in enumerate(ttbrs):
         print("TTBR%d: %08X" % (i, ttbr))
         print("===============")
@@ -157,8 +163,9 @@ def walk_ttbrs(data, ttbrs, verbose=False):
 
             entry_address = (ttbr & base_mask) | ((address >> 18) & 0x3ffc)
             #~ print hex(ttbr), hex(ttbr & base_mask), hex((address >> 18) & 0x3ffc), hex(entry_address)
-            desc = getLongLE(data, entry_address - rombase)
-            page_attributes = parse_descriptor(data, rombase, desc, address, entry_address, verbose=verbose)
+            desc = getLongLE(data, entry_address - data_base_address)
+            page_attributes = parse_descriptor(data, data_base_address, desc,
+                                               address, entry_address, verbose=verbose)
             if not page_attributes:
                 continue
 
