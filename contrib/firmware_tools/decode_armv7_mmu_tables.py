@@ -41,15 +41,11 @@ def main():
     #
     # https://developer.arm.com/documentation/ddi0406/b/System-Level-Architecture/Virtual-Memory-System-Architecture--VMSA-/Translation-tables?lang=en
 
-    # While some cams do set different values here, it doesn't seem
-    # to make a difference when parsing.  I don't understand this yet,
-    # I assume some alignment makes the low bits irrelevant.
-    #
-    # This holds cpu0 [ttbr0, ttbr1], cpu1 [ttbr0, ttbr1]
-    cam_ttbrs = {"R5":  ([0xe0004800, 0xe0000000],
-                         [0xe0004880, 0xe0000000]),
-                 "M50": ([0xe0004800, 0xe0000080],
-                         [0xe0004880, 0xe0000080])}
+    ttbr1 = args.ttbr1 & 0xffffff00
+
+    # So far, all Canon tables seen have TTBR1 tables immediately
+    # before TTBR0 tables, and size 0x4800
+    ttbr0_offset = 0x4800
 
     for cpu_id in [0, 1]:
         print("CPU%d" % cpu_id)
@@ -62,9 +58,10 @@ def main():
         last_xn = None
         last_texcb = None
 
+        ttbr0 = ttbr1 + ttbr0_offset + (0x80 * cpu_id)
         # address, phys_addr, page_size, access_permissions, texcb, xn
         for a, p, s, ap, texcb, xn in walk_ttbrs(data, args.data_base_address,
-                                                 cam_ttbrs["R5"][cpu_id],
+                                                 [ttbr0, ttbr1],
                                                  verbose=args.verbose):
             offset = p - a
             s = 1024
@@ -102,6 +99,11 @@ def parse_args():
     parser.add_argument("datafile",
                         help="path to ROM or mem dump to attempt MMU table parsing")
     parser.add_argument("-b", "--data-base-address",
+                        help="Virtual address of the start of datafile, default: %(default)x",
+                        default=0xe0000000,
+                        type=functools.partial(int, base=0))
+    parser.add_argument("--ttbr1",
+                        help="Value of TTBR1: default: %(default)x",
                         default=0xe0000000,
                         type=functools.partial(int, base=0))
     parser.add_argument("-v", "--verbose",
