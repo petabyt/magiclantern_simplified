@@ -18,7 +18,7 @@ PageAttributes = namedtuple("PageAttributes", "virt_address phys_address size ac
 def main():
     args = parse_args()
 
-    ROM = open(args.rom, "rb").read()
+    data = open(args.datafile, "rb").read()
 
     # What is TTBR?  This means Translation Table Base Register.
     # There are three,  TTBR0, TTBR1 and TTBCR.
@@ -62,7 +62,7 @@ def main():
         last_texcb = None
 
         # address, phys_addr, page_size, access_permissions, texcb, xn
-        for a, p, s, ap, texcb, xn in walk_ttbrs(ROM,
+        for a, p, s, ap, texcb, xn in walk_ttbrs(data,
                                                  cam_ttbrs["R5"][cpu_id],
                                                  verbose=args.verbose):
             offset = p - a
@@ -98,16 +98,16 @@ def parse_args():
 
     parser = argparse.ArgumentParser(description=description)
 
-    parser.add_argument("rom",
-                        help="path to ROM to attempt MMU table parsing")
+    parser.add_argument("datafile",
+                        help="path to ROM or mem dump to attempt MMU table parsing")
     parser.add_argument("-v", "--verbose",
                         default=False,
                         action="store_true")
 
     args = parser.parse_args()
-    args.rom = os.path.realpath(args.rom)
-    if not os.path.isfile(args.rom):
-        print("ROM didn't exist: '%s'" % args.rom)
+    args.datafile = os.path.realpath(args.datafile)
+    if not os.path.isfile(args.datafile):
+        print("File didn't exist: '%s'" % args.datafile)
         sys.exit(-1)
 
     return args
@@ -130,7 +130,7 @@ def extract32(value, start, length):
     return (value >> start) & (0xFFFFFFFF >> (32 - length));
 
 
-def walk_ttbrs(ROM, ttbrs, verbose=False):
+def walk_ttbrs(data, ttbrs, verbose=False):
     # we assume "short-descriptor translation table format",
     # which may not be future proof.
     #
@@ -157,15 +157,15 @@ def walk_ttbrs(ROM, ttbrs, verbose=False):
 
             entry_address = (ttbr & base_mask) | ((address >> 18) & 0x3ffc)
             #~ print hex(ttbr), hex(ttbr & base_mask), hex((address >> 18) & 0x3ffc), hex(entry_address)
-            desc = getLongLE(ROM, entry_address - rombase)
-            page_attributes = parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=verbose)
+            desc = getLongLE(data, entry_address - rombase)
+            page_attributes = parse_descriptor(data, rombase, desc, address, entry_address, verbose=verbose)
             if not page_attributes:
                 continue
 
             yield page_attributes
 
 
-def parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=False):
+def parse_descriptor(data, rombase, desc, address, entry_address, verbose=False):
     # last two bits hold the type, see B3.5.1
     desc_type = desc & 3
     if verbose:
@@ -174,9 +174,9 @@ def parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=False):
 
     #~ print hex(address), hex(entry_address), hex(desc), type
     if desc_type == 1: # Page table
-        page_attributes = parse_page_table(ROM, rombase, desc, address, verbose=verbose)
+        page_attributes = parse_page_table(data, rombase, desc, address, verbose=verbose)
     elif desc_type == 2: # Section or Supersection
-        page_attributes = parse_section(ROM, rombase, desc, address, verbose=verbose)
+        page_attributes = parse_section(data, rombase, desc, address, verbose=verbose)
     else: # 0, explicit fault, or 3, fault if implementation does not support PXN
         if verbose:
             print("Fault")
@@ -185,7 +185,7 @@ def parse_descriptor(ROM, rombase, desc, address, entry_address, verbose=False):
     return page_attributes
 
 
-def parse_section(ROM, rombase, desc, address, verbose=False):
+def parse_section(data, rombase, desc, address, verbose=False):
     """
     Parses the given descriptor, which should be type 2 / Section or Supersection.
 
@@ -220,7 +220,7 @@ def parse_section(ROM, rombase, desc, address, verbose=False):
     return PageAttributes(address, phys_addr, page_size, ap, texcb, xn)
 
 
-def parse_page_table(ROM, rombase, desc, address, verbose=False):
+def parse_page_table(data, rombase, desc, address, verbose=False):
     """
     Parses the given descriptor, which should be type 1 / page table.
 
@@ -232,7 +232,7 @@ def parse_page_table(ROM, rombase, desc, address, verbose=False):
     assert sbz == 0
     table_addr = (desc & 0xfffffc00)
     l2_entry = table_addr | ((address >> 10) & 0x3fc);
-    desc = getLongLE(ROM, l2_entry - rombase)
+    desc = getLongLE(data, l2_entry - rombase)
     if verbose:
         print("L2 table=%08X domain=%X entry=%X"
               % (table_addr, domain, l2_entry), end=' ')
