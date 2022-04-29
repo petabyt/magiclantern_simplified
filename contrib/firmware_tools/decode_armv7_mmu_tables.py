@@ -43,6 +43,15 @@ def main():
 
     ttbr1 = args.ttbr1 & 0xffffff00
 
+    # Notes from srsa on standard Canon MMU tables:
+    #
+    # below translation table manipulation functions assume the Canon fw table arrangement:
+    # - 0x4000 bytes of L1 table for both cores, describing addresses from 32MB upwards
+    # - 0x400 bytes of L2 table describing address range 0...1024kB, core0
+    # - 0x400 bytes of L2 table describing address range 0...1024kB, core1
+    # - 0x80 bytes of L1 table describing address range 0...32MB, core0
+    # - 0x80 bytes of L1 table describing address range 0...32MB, core1
+
     # So far, all Canon tables seen have TTBR1 tables immediately
     # before TTBR0 tables, and size 0x4800
     ttbr0_offset = 0x4800
