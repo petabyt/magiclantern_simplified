@@ -461,6 +461,25 @@ void mem_to_file(char *name, uint32_t addr, uint32_t size)
     FIO_CloseFile(f);
 }
 
+static uint32_t ttbr0_cpu0 = 0;
+static uint32_t ttbr1_cpu0 = 0;
+static uint32_t ttbr0_cpu1 = 0;
+static uint32_t ttbr1_cpu1 = 0;
+void get_ttbrs(void *priv)
+{
+    uint32_t cpu_id = get_cpu_id();
+    if (cpu_id == 0)
+    {
+        ttbr0_cpu0 = get_ttbr0();
+        ttbr1_cpu0 = get_ttbr1();
+    }
+    else
+    {
+        ttbr0_cpu1 = get_ttbr0();
+        ttbr1_cpu1 = get_ttbr1();
+    }
+}
+
 int yuv_dump_sec = 0;
 static void run_test()
 {
@@ -469,6 +488,16 @@ static void run_test()
 #if 0
     DryosDebugMsg(0, 15, "D_V_S_P: 0x%x", DISP_VRAM_STRUCT_PTR);
     DryosDebugMsg(0, 15, "L_B_D_A: 0x%x", YUV422_LV_BUFFER_DISPLAY_ADDR);
+#endif
+
+#if 0 && defined(CONFIG_DIGIC_78)
+    task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 0);
+    task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 1);
+    msleep(1100);
+    DryosDebugMsg(0, 15, "CPU0 TTBR0: 0x%x", ttbr0_cpu0);
+    DryosDebugMsg(0, 15, "CPU0 TTBR1: 0x%x", ttbr1_cpu0);
+    DryosDebugMsg(0, 15, "CPU1 TTBR0: 0x%x", ttbr0_cpu1);
+    DryosDebugMsg(0, 15, "CPU1 TTBR1: 0x%x", ttbr1_cpu1);
 #endif
 
 #if 0
