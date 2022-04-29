@@ -188,6 +188,24 @@ static u32 get_ccsidr(void)
     return ccsidr;
 }
 
+static u32 get_ttbr0(void)
+{
+    u32 ttbr0;
+
+    /* Read current CP15 Cache Size ID Register */
+    asm volatile ("mrc p15, 0, %0, c2, c0, 0" : "=r" (ttbr0));
+    return ttbr0;
+}
+
+static u32 get_ttbr1(void)
+{
+    u32 ttbr1;
+
+    /* Read current CP15 Cache Size ID Register */
+    asm volatile ("mrc p15, 0, %0, c2, c0, 1" : "=r" (ttbr1));
+    return ttbr1;
+}
+
 static void set_csselr(u32 level, u32 type)
 {   u32 csselr = level << 1 | type;
 
