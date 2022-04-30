@@ -290,8 +290,7 @@ def decode_ap(ap):
         return "P:R "
     if (ap == 0b011):
         return "RW  "
-    if verbose:
-        print(bin(ap))
+    print(bin(ap))
     assert False
 
 
