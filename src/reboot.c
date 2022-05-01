@@ -33,7 +33,112 @@
 #define STR(x) STRx(x)
 #define STRx(x) #x
 
+#ifdef CONFIG_MMU_REMAP
+#include "mmu_utils.h"
+
+static const uint32_t mmu_table_size = 0x4900; // true so far, not guaranteed
+extern uint32_t copy_mmu_tables(uint32_t dest_addr);
+extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
+extern dcache_clean(uint32_t addr, uint32_t size);
+extern icache_invalidate(uint32_t addr, uint32_t size);
+extern mmu_table_routine2(uint32_t addr, uint32_t size);
+void remap_mmu(void)
+{
+    uint32_t cpu_id = get_cpu_id();
+    uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
+
+#ifdef CONFIG_200D
+    // copy original table to ram copy
+    //
+    // We can't use a simple copy, the table stores absolute addrs
+    // related to where it is located.  There's a DryOS func that
+    // does copy + address fixups
+    int32_t align_fail = copy_mmu_tables(ML_MMU_TABLE_ADDR);
+    if (align_fail != 0)
+        while(1); // maybe we can jump to Canon fw instead?
+
+    // get original rom and ram memory flags
+
+    uint32_t flags_rom = get_l2_largepage_flags_from_l1_section(rom_base_addr, CANON_ORIG_MMU_TABLE_ADDR);
+    uint32_t flags_ram = get_l2_largepage_flags_from_l1_section(0x10000000, CANON_ORIG_MMU_TABLE_ADDR);
+    // determine flags for our L2 page to give it RAM cache attributes
+    uint32_t flags_new = flags_rom & ~L2_LARGEPAGE_MEMTYPE_MASK;
+    flags_new |= (flags_ram & L2_LARGEPAGE_MEMTYPE_MASK);
+
+    // Split 16MB Supersection containing target addr into 16 Sections, in our copied table.
+    // We remap from start of rom for one section, e.g.:
+    //      0xe000.0000 to 0xe010.0000 can be remapped.
+//    split_l1_supersection(rom_base_addr, ML_MMU_TABLE_ADDR);
+    split_l1_supersection(0xf0000000, ML_MMU_TABLE_ADDR);
+
+    // edit copy, pointing existing ROM code to our RAM versions
+//    replace_section_with_l2_tbl(rom_base_addr, ML_MMU_TABLE_ADDR,
+//                                ML_MMU_L2_TABLE_ADDR, flags_new);
+    replace_section_with_l2_tbl(0xf0000000, ML_MMU_TABLE_ADDR,
+                                ML_MMU_L2_TABLE_ADDR, flags_new);
+
+    // SJE quick hack test, try and replace a string from asset rom
+    // f00d84e7 "Dust Delete Data"
+    replace_rom_page(0xf00d0000, ML_MMU_64k_PAGE_01,
+                     ML_MMU_L2_TABLE_ADDR, flags_new);
+    blob_memcpy(ML_MMU_64k_PAGE_01, 0xf00d0000, 0xf00e0000);
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e7) = 'E';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e8) = 'a';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e9) = 'r';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ea) = 'l';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84eb) = ' ';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ec) = 'G';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ed) = 'r';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ee) = 'e';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ef) = 'y';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f0) = ',';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f1) = ' ';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f2) = 'h';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f3) = 'o';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f4) = 't';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f5) = '\0';
+
+    // sync caches over edited table region
+    dcache_clean(ML_MMU_64k_PAGE_01, PAGE_SIZE);
+    dcache_clean(0xf00d0000, PAGE_SIZE);
+    dcache_clean(ML_MMU_L2_TABLE_ADDR, 0x400);
+    mmu_table_routine2(ML_MMU_L2_TABLE_ADDR, 0x400);
+
+    // flush icache
+//    icache_invalidate(virt_addr, PAGE_SIZE);
+
+    dcache_clean(ML_MMU_TABLE_ADDR, mmu_table_size);
+    mmu_table_routine2(ML_MMU_TABLE_ADDR, mmu_table_size);
+
+    // update TTBRs (this DryOS function also triggers TLBIALL)
+    uint32_t cpu_mmu_offset = mmu_table_size - 0x100 + cpu_id * 0x80;
+    change_mmu_tables(ML_MMU_TABLE_ADDR + cpu_mmu_offset,
+                      ML_MMU_TABLE_ADDR,
+                      cpu_id);
+#endif
+    return;
+}
+#endif
+
 /* we need this ASM block to be the first thing in the file */
+//
+// SJE I believe the above comment is incorrect and the pragma
+// doesn't keep the ASM block at the start of the file.
+// I think the .text / _start stuff in the asm does that.
+// I believe the reason it wants to be first is because the
+// build system uses that to locate it at the start of
+// autoexec.bin.
+//
+// Local tests show that functions above this point still get
+// placed later in the object file.  I want this so I can call
+// functions from the asm.  Could use a header file but it's not
+// much code, and the pre-processor is still going to pull that
+// code in earlier than the asm.  This way it's explicit that
+// there will be code earlier (which shouldn't end up earlier in
+// the object file).
+//
+// If I'm wrong, autoexec.bin will fail hard and we should spot this
+// early in Qemu.
 #pragma GCC optimize ("-fno-reorder-functions")
 
 /* polyglot startup code that works if loaded as either ARM or Thumb */
@@ -55,7 +160,10 @@ asm(
 
 /* this does not compile on DIGIC 5 and earlier */
 #if defined(CONFIG_DIGIC_VII) || defined(CONFIG_DIGIC_VIII)
-    "MRC    p15,0,R0,c0,c0,5\n" /* refuse to run on cores other than #0 */
+#ifdef CONFIG_MMU_REMAP
+    "bl remap_mmu\n" // before CPU ID check, both cores will remap
+#endif
+    "MRC    p15,0,R0,c0,c0,5\n" /* refuse to run ML on cores other than #0 */
     "ANDS.W R0, R0, #3\n"       /* read the lowest 2 bits of the MPIDR register */
     "ITTT   NE\n"               /* check if CPU ID is nonzero (i.e. other cores) */
     "LDRNE  R0, rombaseaddr\n"  /* jump to main firmware if running from other cores */
@@ -114,7 +222,7 @@ asm(
     
     /* if the checksum was wrong, reset to main firmware */
     "BXNE    R10\n"
-    "B       cstart\n"
+    "B       ml_cstart\n"
     
     "checksum_area:"
     ".word   _start\n"
@@ -248,7 +356,7 @@ static void set_S_TX_DATA(int value)
 
 void
 __attribute__((noreturn))
-cstart( void )
+ml_cstart( void )
 {
     uint32_t s = compute_signature((void*)SIG_START, SIG_LEN);
     uint32_t expected_signature = CURRENT_CAMERA_SIGNATURE;

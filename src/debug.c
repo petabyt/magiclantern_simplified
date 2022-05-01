@@ -461,6 +461,7 @@ void mem_to_file(char *name, uint32_t addr, uint32_t size)
     FIO_CloseFile(f);
 }
 
+#if 1 && defined(CONFIG_DIGIC_78) && defined(CONFIG_200D)
 static uint32_t ttbr0_cpu0 = 0;
 static uint32_t ttbr1_cpu0 = 0;
 static uint32_t ttbr0_cpu1 = 0;
@@ -479,18 +480,27 @@ void get_ttbrs(void *priv)
         ttbr1_cpu1 = get_ttbr1();
     }
 }
+#endif
 
 int yuv_dump_sec = 0;
 static void run_test()
 {
     DryosDebugMsg(0, 15, "run_test fired");
+
+#if 1 && defined(CONFIG_MMU_REMAP)
+    extern void dump_file(char* name, uint32_t addr, uint32_t size);
+    dump_file("mmu.bin", ML_MMU_TABLE_ADDR, 0x20000);
+    dump_file("f00d.bin", 0xf00d0000, 0x20000);
+    dump_file("newf00d.bin", ML_MMU_64k_PAGE_01, 0x10000);
+#endif
+
 //    yuv_dump_sec = 5; // triggers dump
 #if 0
     DryosDebugMsg(0, 15, "D_V_S_P: 0x%x", DISP_VRAM_STRUCT_PTR);
     DryosDebugMsg(0, 15, "L_B_D_A: 0x%x", YUV422_LV_BUFFER_DISPLAY_ADDR);
 #endif
 
-#if 0 && defined(CONFIG_DIGIC_78)
+#if 1 && defined(CONFIG_DIGIC_78) && defined(CONFIG_200D)
     task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 0);
     task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 1);
     msleep(1100);
@@ -498,6 +508,46 @@ static void run_test()
     DryosDebugMsg(0, 15, "CPU0 TTBR1: 0x%x", ttbr1_cpu0);
     DryosDebugMsg(0, 15, "CPU1 TTBR0: 0x%x", ttbr0_cpu1);
     DryosDebugMsg(0, 15, "CPU1 TTBR1: 0x%x", ttbr1_cpu1);
+#endif
+
+#if 0
+    // used in combo with MARK_UNUSED
+    //
+    // what areas of the main memory appears unused?
+    uint32_t used = 1;
+    uint32_t current = 0x437fac00;
+    uint32_t end = 0x43b5ac04;
+    uint32_t unused_start = current;
+    uint32_t unused_end = unused_start;
+
+    uint32_t v = MEM(current);
+    DryosDebugMsg(0, 15, "initial mem: %08x", v);
+    while(current < end)
+    {
+        v = MEM(current);
+        if (v == 0x124B1DE0 /* RA(W)VIDEO*/)
+        { // unused
+            if (used)
+            { // transition from used to unused
+                DryosDebugMsg(0, 15, "transition to unused: %08x", current);
+                unused_start = current;
+            }
+            used = 0;
+        }
+        else
+        { // used
+            if (!used)
+            { // transition from unused to used
+                unused_end = current;
+                DryosDebugMsg(0, 15, "%08x-%08x: unused", unused_start, unused_end);
+            }
+            used = 1;
+        }
+
+        current += 4;
+    }
+    DryosDebugMsg(0, 15, "finished checking unused");
+
 #endif
 
 #if 0

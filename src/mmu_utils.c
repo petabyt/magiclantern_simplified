@@ -22,20 +22,18 @@
 
 #include "dryos.h"
 #include "mem.h"
+#include "mmu_utils.h"
 
 #ifndef CONFIG_MMU
 #error Attempting to build mmu_utils.c but cam not listed as having an MMU - this is probably a mistake
 #endif
-
-#define PAGE_SIZE (0x10000)
-#define SECTION_SIZE (0x100000)
 
 // retrieves L1 translation table flags in L2 table large page entry format
 // addr: address of source virtual memory chunk (section or supersection in L1 table)
 // l1tableaddr: physical address of Canon-style L1 table (the 16kB aligned main L1 table at its start, to be exact)
 // returns 0xffffffff in case of inappropriate table address or unexpected L1 table content
 // otherwise, the flags are returned
-unsigned get_l2_largepage_flags_from_l1_section(unsigned addr, unsigned l1tableaddr)
+uint32_t get_l2_largepage_flags_from_l1_section(uint32_t addr, uint32_t l1tableaddr)
 {
     // alignment check
     if (l1tableaddr & 0x3fff) {
@@ -68,7 +66,7 @@ unsigned get_l2_largepage_flags_from_l1_section(unsigned addr, unsigned l1tablea
 // addr: address of 16MB chunk of virtual memory
 // l1tableaddr: physical address of Canon-style L1 table (the 0x4000-byte-aligned main L1 table at its start, to be exact)
 // does nothing and returns nonzero in case of inappropriate table address or missing supersection
-int split_l1_supersection(unsigned addr, unsigned l1tableaddr)
+int32_t split_l1_supersection(uint32_t addr, uint32_t l1tableaddr)
 {
     // alignment check
     if (l1tableaddr & 0x3fff) {
@@ -102,7 +100,7 @@ int split_l1_supersection(unsigned addr, unsigned l1tableaddr)
 // l1tableaddr: physical address of Canon-style L1 table (the 16kB aligned main L1 table at its start, to be exact)
 // l2tableaddr: physical address of L2 table (1024 bytes, 1024-byte alignment)
 // does nothing and returns nonzero in case of inappropriate table address or unexpected L1 table content
-int assign_l2_table_to_l1_section(unsigned addr, unsigned l1tableaddr, unsigned l2tableaddr)
+int32_t assign_l2_table_to_l1_section(uint32_t addr, uint32_t l1tableaddr, uint32_t l2tableaddr)
 {
     // alignment check
     if (l1tableaddr & 0x3fff || l2tableaddr & 0x3ff) {
@@ -131,7 +129,7 @@ int assign_l2_table_to_l1_section(unsigned addr, unsigned l1tableaddr, unsigned 
 // l2tableaddr: physical address of L2 table (1024 bytes, 1024-byte alignment)
 // flags: flags in the new page table entries (should probably match those in respective part of L1 table)
 // does nothing and returns nonzero in case of inappropriate table address
-int create_l2_table(unsigned addr, unsigned l2tableaddr, unsigned flags)
+int32_t create_l2_table(uint32_t addr, uint32_t l2tableaddr, uint32_t flags)
 {
     // alignment check
     if (l2tableaddr & 0x3ff) {
@@ -158,7 +156,7 @@ int create_l2_table(unsigned addr, unsigned l2tableaddr, unsigned flags)
 // l2tableaddr: physical address of L2 table (1024 bytes, 1024-byte alignment)
 // flags: flags in the new page table entries (should probably match those in respective part of L1 table)
 // does nothing and returns nonzero in case of inappropriate addresses
-int replace_large_page_in_l2_table(unsigned addr, unsigned replacement, unsigned l2tableaddr, unsigned flags)
+int32_t replace_large_page_in_l2_table(uint32_t addr, uint32_t replacement, uint32_t l2tableaddr, uint32_t flags)
 {
     // alignment check
     if (l2tableaddr & 0x3ff || addr & 0xffff || replacement & 0xffff) {
@@ -181,10 +179,11 @@ int replace_large_page_in_l2_table(unsigned addr, unsigned replacement, unsigned
 // ramaddr: suitable 64kB aligned RAM address
 // l2addr: existing L2 table's address
 // flags: L2 table entry flags
-void replace_rom_page(unsigned romaddr, unsigned ramaddr, unsigned l2addr, unsigned flags)
+void replace_rom_page(uint32_t romaddr, uint32_t ramaddr, uint32_t l2addr, uint32_t flags)
 {
+    // SJE FIXME - enforce the alignment checks for romaddr and ramaddr
     // copy 64kB "large" page to RAM
-    memcpy((void*)ramaddr, (void*)romaddr, PAGE_SIZE);
+    blob_memcpy((void*)ramaddr, (void*)romaddr, (void*)(romaddr + PAGE_SIZE));
     // make L2 table entry point to copied ROM content
     replace_large_page_in_l2_table(romaddr, ramaddr, l2addr, flags);
 }
@@ -194,7 +193,7 @@ void replace_rom_page(unsigned romaddr, unsigned ramaddr, unsigned l2addr, unsig
 // l1addr: address of Canon-style MMU tables
 // l2addr: L2 table to be placed at this address (0x400-byte alignment)
 // flags: L2 table entry flags
-void replace_section_with_l2_tbl(unsigned romaddr, unsigned l1addr, unsigned l2addr, unsigned flags)
+void replace_section_with_l2_tbl(uint32_t romaddr, uint32_t l1addr, uint32_t l2addr, uint32_t flags)
 {
     // make a L2 table
     create_l2_table(romaddr, l2addr, flags);
@@ -255,5 +254,4 @@ void replace_section_with_l2_tbl(unsigned romaddr, unsigned l1addr, unsigned l2a
     *(unsigned*)(newa+8) = LDRW_PC_PC_T2; *(unsigned*)(newa+12) = ((orig+8)|1); \
     *(unsigned*)(origram) = LDRW_PC_PC_T2; *(unsigned*)(origram+4) = ((newa+16)|1); }
 
-#define L2_LARGEPAGE_MEMTYPE_MASK (0x700c)
 

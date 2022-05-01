@@ -299,7 +299,12 @@ THUMB_FN(0xe025e949, XimrContextInputLayerSetDimensions)
 THUMB_FN(0xe021ded9, WinSys_AllocateMemory)
 THUMB_FN(0xe021df7d, WinSys_FreeMemory)
 
-
+THUMB_FN(0xe0004a5a, change_mmu_tables) // Updates TTBRs and does TLB maintenance
+THUMB_FN(0xe0013cc4, copy_mmu_tables) // copies from one location to another,
+                                      // fixing up addresses held in table start,
+                                      // and doing cache maintenance
+THUMB_FN(0xe0013dcc, mmu_table_routine2) // Some kind of CPU<->CPU comms?
+                                         // Uses c11007b0 and c1100730
 
 
 DATA_PTR(   0xfd84,  bmp_vram_info) // function e04a044c looks relevant, see refs to 0x3c0 and 0x21c; 960x540
