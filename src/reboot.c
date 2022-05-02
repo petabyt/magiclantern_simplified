@@ -161,7 +161,9 @@ asm(
 /* this does not compile on DIGIC 5 and earlier */
 #if defined(CONFIG_DIGIC_VII) || defined(CONFIG_DIGIC_VIII)
 #ifdef CONFIG_MMU_REMAP
-    "bl remap_mmu\n" // before CPU ID check, both cores will remap
+    "bl remap_mmu\n" // Before CPU ID check, both cores will remap on D8.
+                     // On (some? 200D at least) D7, only one core jumps to autoexec,
+                     // so only one gets remapped here.
 #endif
     "MRC    p15,0,R0,c0,c0,5\n" /* refuse to run ML on cores other than #0 */
     "ANDS.W R0, R0, #3\n"       /* read the lowest 2 bits of the MPIDR register */
