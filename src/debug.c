@@ -522,14 +522,14 @@ static void run_test()
 
     uint32_t v = MEM(current);
     DryosDebugMsg(0, 15, "initial mem: %08x", v);
-    while(current < end)
+    while(current <= end)
     {
         v = MEM(current);
         if (v == 0x124B1DE0 /* RA(W)VIDEO*/)
         { // unused
             if (used)
             { // transition from used to unused
-                DryosDebugMsg(0, 15, "transition to unused: %08x", current);
+                //DryosDebugMsg(0, 15, "transition to unused: %08x", current);
                 unused_start = current;
             }
             used = 0;
@@ -539,7 +539,11 @@ static void run_test()
             if (!used)
             { // transition from unused to used
                 unused_end = current;
-                DryosDebugMsg(0, 15, "%08x-%08x: unused", unused_start, unused_end);
+                uint32_t length = unused_end - unused_start;
+                if (length > 0x10000)
+                {
+                    DryosDebugMsg(0, 15, "%08x-%08x (0x%x): unused", unused_start, unused_end, length);
+                }
             }
             used = 1;
         }
