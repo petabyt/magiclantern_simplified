@@ -39,9 +39,9 @@
 static const uint32_t mmu_table_size = 0x4900; // true so far, not guaranteed
 extern uint32_t copy_mmu_tables(uint32_t dest_addr);
 extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
-extern dcache_clean(uint32_t addr, uint32_t size);
-extern icache_invalidate(uint32_t addr, uint32_t size);
-extern mmu_table_routine2(uint32_t addr, uint32_t size);
+extern void dcache_clean(uint32_t addr, uint32_t size);
+extern void icache_invalidate(uint32_t addr, uint32_t size);
+extern void mmu_table_routine2(uint32_t addr, uint32_t size);
 void remap_mmu(void)
 {
     uint32_t cpu_id = get_cpu_id();
