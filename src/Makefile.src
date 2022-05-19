@@ -249,7 +249,8 @@ ML_SRC_REBOOT_OBJ = reboot.o \
 endif
 ifeq ($(CONFIG_MMU_REMAP), y)
 ML_SRC_REBOOT_OBJ += \
-	mmu_utils.o
+	mmu_utils.o \
+	patch_mmu.o
 endif
 
 clean::

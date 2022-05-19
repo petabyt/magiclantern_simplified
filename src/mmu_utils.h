@@ -6,6 +6,7 @@
 #endif
 
 #define L2_LARGEPAGE_MEMTYPE_MASK (0x700c)
+#define MMU_TABLE_SIZE (0x4900)
 #define PAGE_SIZE (0x10000)
 #define SECTION_SIZE (0x100000)
 
@@ -44,6 +45,13 @@ int32_t create_l2_table(uint32_t addr, uint32_t l2tableaddr, uint32_t flags);
 // flags: flags in the new page table entries (should probably match those in respective part of L1 table)
 // does nothing and returns nonzero in case of inappropriate addresses
 int32_t replace_large_page_in_l2_table(uint32_t addr, uint32_t replacement, uint32_t l2tableaddr, uint32_t flags);
+
+// Given an address and size, determine containing supersection and split
+// into sections if not already done.  If changes were made to tables,
+// schedule tasks to update cpu(s) TTBR registers.
+//
+// Returns 0 if everything went okay, non-zero if any errors occured.
+int remap_page(uint32_t addr, uint32_t size, uint32_t *tt);
 
 // replace a 64kB large ROM page with its RAM copy
 // romaddr: start of ROM page (64kB aligned), has to fall within the range of L2 table

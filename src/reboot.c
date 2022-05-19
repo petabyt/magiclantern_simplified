@@ -33,90 +33,9 @@
 #define STR(x) STRx(x)
 #define STRx(x) #x
 
-#ifdef CONFIG_MMU_REMAP
-#include "mmu_utils.h"
-
-extern uint32_t copy_mmu_tables(uint32_t dest_addr);
-extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
-extern void dcache_clean(uint32_t addr, uint32_t size);
-extern void icache_invalidate(uint32_t addr, uint32_t size);
-extern void mmu_table_routine2(uint32_t addr, uint32_t size);
-void remap_mmu(void)
-{
-    uint32_t cpu_id = get_cpu_id();
-    uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
-
-#ifdef CONFIG_200D
-    // copy original table to ram copy
-    //
-    // We can't use a simple copy, the table stores absolute addrs
-    // related to where it is located.  There's a DryOS func that
-    // does copy + address fixups
-    int32_t align_fail = copy_mmu_tables(ML_MMU_TABLE_01_ADDR);
-    if (align_fail != 0)
-        while(1); // maybe we can jump to Canon fw instead?
-
-    // get original rom and ram memory flags
-    uint32_t flags_rom = get_l2_largepage_flags_from_l1_section(rom_base_addr, CANON_ORIG_MMU_TABLE_ADDR);
-    uint32_t flags_ram = get_l2_largepage_flags_from_l1_section(0x10000000, CANON_ORIG_MMU_TABLE_ADDR);
-    // determine flags for our L2 page to give it RAM cache attributes
-    uint32_t flags_new = flags_rom & ~L2_LARGEPAGE_MEMTYPE_MASK;
-    flags_new |= (flags_ram & L2_LARGEPAGE_MEMTYPE_MASK);
-
-    // Split 16MB Supersection containing target addr into 16 Sections, in our copied table.
-    // We remap from start of rom for one section, e.g.:
-    //      0xe000.0000 to 0xe010.0000 can be remapped.
-//    split_l1_supersection(rom_base_addr, ML_MMU_TABLE_ADDR);
-    split_l1_supersection(0xf0800000, ML_MMU_TABLE_01_ADDR);
-
-    // edit copy, pointing existing ROM code to our RAM versions
-//    replace_section_with_l2_tbl(rom_base_addr, ML_MMU_TABLE_ADDR,
-//                                ML_MMU_L2_TABLE_ADDR, flags_new);
-    replace_section_with_l2_tbl(0xf0800000, ML_MMU_TABLE_01_ADDR,
-                                ML_MMU_L2_TABLE_01_ADDR, flags_new);
-
-    // SJE quick hack test, try and replace a string from asset rom
-    // 0xf082efba "Auto power off"
-    replace_rom_page(0xf0820000, ML_MMU_64k_PAGE_01,
-                     ML_MMU_L2_TABLE_01_ADDR, flags_new);
-
-    *(uint32_t *)(ML_MMU_64k_PAGE_01) = *(uint32_t *)(0x800000);
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefba) = 'S';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbb) = 'e';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbc) = 'l';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbd) = 'f';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbe) = '-';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbf) = 'd';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc0) = 'e';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc1) = 's';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc2) = 't';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc3) = 'r';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc4) = 'u';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc5) = 'c';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc6) = 't';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc7) = '\0';
-
-    // sync caches over edited table region
-    dcache_clean(ML_MMU_64k_PAGE_01, PAGE_SIZE);
-    dcache_clean(0xf0820000, PAGE_SIZE);
-    dcache_clean(ML_MMU_L2_TABLE_01_ADDR, 0x400);
-    mmu_table_routine2(ML_MMU_L2_TABLE_01_ADDR, 0x400);
-
-    // flush icache
-//    icache_invalidate(virt_addr, PAGE_SIZE);
-
-    dcache_clean(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
-    mmu_table_routine2(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
-
-    // update TTBRs (this DryOS function also triggers TLBIALL)
-    uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
-//    change_mmu_tables(ML_MMU_TABLE_ADDR + cpu_mmu_offset,
-//                      ML_MMU_TABLE_ADDR,
-//                      cpu_id);
-#endif // CONFIG_200D
-    return;
-}
-#endif // CONFIG_MMU_REMAP
+#ifdef CONFIG_EARLY_MMU_REMAP
+extern void remap_mmu(void);
+#endif
 
 /* we need this ASM block to be the first thing in the file */
 //

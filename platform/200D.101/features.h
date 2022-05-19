@@ -38,6 +38,10 @@
 #define FEATURE_GLOBAL_DRAW
 #define FEATURE_CROPMARKS
 
+// Early MMU remapping, in reboot.c,
+// to enable some kinds of logging and tests
+#define CONFIG_EARLY_MMU_REMAP
+
 // prevent ML attempting stack unwinding in some cases.
 // This does not yet work (assumes ARM, not Thumb).  Alex recommends
 // a good looking fix:
