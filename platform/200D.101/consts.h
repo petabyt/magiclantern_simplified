@@ -173,32 +173,39 @@
 // On 200D, the region 0x4390dd00:0x43b5ac00 is not used under light pressure.
 // Can navigate menus, LV on/off, take pictures, take video, playback video.
 // Not fully proven safe but good enough for light usage.
-#define ML_MMU_TABLE_ADDR 0x43910000 // Our replacement TTBR0 table base address.
-                                     // Must be 0x4000 aligned or the Canon MMU copy routines
-                                     // will fail.
-                                     //
-                                     // You can use low or high mirrored (uncache / cache) addresses,
-                                     // but the table contains absolute address for itself,
-                                     // so you should ensure all accesses to the table consistently
-                                     // use the same mirror.
-                                     //
-                                     // Must be a memory region that DryOS will NEVER write to.
-                                     // If it does, super bad things will happen, the entire VA -> PA
-                                     // mapping system will change and everything will explode.
-                                     //
-                                     // Be very careful about finding an unused memory region
-                                     // before attempting this.
+//
+// In order to support runtime MMU patches, we want two locations to store
+// MMU translation tables, so we can edit one without disturbing the one
+// in active use, then swap.  Some cams work from a ram copy, which could
+// possibly be used as one of this pair.  I have not implemented this.
+#define ML_MMU_TABLE_01_ADDR 0x43910000 // A replacement TTBR0 table base addresses.
+#define ML_MMU_TABLE_02_ADDR 0x43918000 // Must be 0x4000 aligned or the Canon MMU copy routines
+                                        // will fail.
+                                        //
+                                        // You can use low or high mirrored (uncache / cache) addresses,
+                                        // but the table contains absolute address for itself,
+                                        // so you should ensure all accesses to the table consistently
+                                        // use the same mirror.
+                                        //
+                                        // Must be a memory region that DryOS will NEVER write to.
+                                        // If it does, super bad things will happen, the entire VA -> PA
+                                        // mapping system will change and everything will explode.
+                                        //
+                                        // Be very careful about finding an unused memory region
+                                        // before attempting this.
 
-#define ML_MMU_L2_TABLE_ADDR 0x43915000 // Start of space where we will build MMU L2 table,
-                                        // for mapping ROM addresses to our replacement code.
-                                        //
-                                        // Must not overlap with base table!  So far this
-                                        // has size 0x4900.
-                                        //
-                                        // Must be 0x400 aligned.
-                                        //
-                                        // I think these are size 0x400, not well checked.
+#define ML_MMU_L2_TABLE_01_ADDR 0x43915000 // Start of space where we will build MMU L2 table,
+#define ML_MMU_L2_TABLE_02_ADDR 0x4391d000 // for mapping ROM addresses to our replacement code.
+                                           //
+                                           // Must not overlap with base table!  So far this
+                                           // has size 0x4900.
+                                           //
+                                           // Must be 0x400 aligned.
+                                           //
+                                           // I think these are size 0x400, not well checked.
 
+// SJE TODO make this an array of page addresses (possibly contiguous),
+// so we can check at runtime if it's possible to remap a requested address.
 #define ML_MMU_64k_PAGE_01 0x43920000 // some space to copy a ROM page into, where
                                       // it can be edited and remapped
 

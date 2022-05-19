@@ -487,7 +487,7 @@ static void run_test()
 {
     DryosDebugMsg(0, 15, "run_test fired");
 
-#if 1 && defined(CONFIG_MMU_REMAP)
+#if 0 && defined(CONFIG_MMU_REMAP)
     extern void dump_file(char* name, uint32_t addr, uint32_t size);
     dump_file("mmu.bin", ML_MMU_TABLE_ADDR, 0x20000);
     dump_file("f00d.bin", 0xf00d0000, 0x20000);
@@ -500,7 +500,7 @@ static void run_test()
     DryosDebugMsg(0, 15, "L_B_D_A: 0x%x", YUV422_LV_BUFFER_DISPLAY_ADDR);
 #endif
 
-#if 1 && defined(CONFIG_DIGIC_78) && defined(CONFIG_200D)
+#if 0 && defined(CONFIG_DIGIC_78) && defined(CONFIG_200D)
     task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 0);
     task_create_ex("get_ttbrs", 0x1e, 0x400, get_ttbrs, 0, 1);
     msleep(1100);

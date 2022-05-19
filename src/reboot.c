@@ -36,7 +36,6 @@
 #ifdef CONFIG_MMU_REMAP
 #include "mmu_utils.h"
 
-static const uint32_t mmu_table_size = 0x4900; // true so far, not guaranteed
 extern uint32_t copy_mmu_tables(uint32_t dest_addr);
 extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
 extern void dcache_clean(uint32_t addr, uint32_t size);
@@ -53,12 +52,11 @@ void remap_mmu(void)
     // We can't use a simple copy, the table stores absolute addrs
     // related to where it is located.  There's a DryOS func that
     // does copy + address fixups
-    int32_t align_fail = copy_mmu_tables(ML_MMU_TABLE_ADDR);
+    int32_t align_fail = copy_mmu_tables(ML_MMU_TABLE_01_ADDR);
     if (align_fail != 0)
         while(1); // maybe we can jump to Canon fw instead?
 
     // get original rom and ram memory flags
-
     uint32_t flags_rom = get_l2_largepage_flags_from_l1_section(rom_base_addr, CANON_ORIG_MMU_TABLE_ADDR);
     uint32_t flags_ram = get_l2_largepage_flags_from_l1_section(0x10000000, CANON_ORIG_MMU_TABLE_ADDR);
     // determine flags for our L2 page to give it RAM cache attributes
@@ -69,56 +67,56 @@ void remap_mmu(void)
     // We remap from start of rom for one section, e.g.:
     //      0xe000.0000 to 0xe010.0000 can be remapped.
 //    split_l1_supersection(rom_base_addr, ML_MMU_TABLE_ADDR);
-    split_l1_supersection(0xf0000000, ML_MMU_TABLE_ADDR);
+    split_l1_supersection(0xf0800000, ML_MMU_TABLE_01_ADDR);
 
     // edit copy, pointing existing ROM code to our RAM versions
 //    replace_section_with_l2_tbl(rom_base_addr, ML_MMU_TABLE_ADDR,
 //                                ML_MMU_L2_TABLE_ADDR, flags_new);
-    replace_section_with_l2_tbl(0xf0000000, ML_MMU_TABLE_ADDR,
-                                ML_MMU_L2_TABLE_ADDR, flags_new);
+    replace_section_with_l2_tbl(0xf0800000, ML_MMU_TABLE_01_ADDR,
+                                ML_MMU_L2_TABLE_01_ADDR, flags_new);
 
     // SJE quick hack test, try and replace a string from asset rom
-    // f00d84e7 "Dust Delete Data"
-    replace_rom_page(0xf00d0000, ML_MMU_64k_PAGE_01,
-                     ML_MMU_L2_TABLE_ADDR, flags_new);
-    blob_memcpy(ML_MMU_64k_PAGE_01, 0xf00d0000, 0xf00e0000);
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e7) = 'E';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e8) = 'a';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84e9) = 'r';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ea) = 'l';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84eb) = ' ';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ec) = 'G';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ed) = 'r';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ee) = 'e';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84ef) = 'y';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f0) = ',';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f1) = ' ';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f2) = 'h';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f3) = 'o';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f4) = 't';
-    *(char *)(ML_MMU_64k_PAGE_01 + 0x84f5) = '\0';
+    // 0xf082efba "Auto power off"
+    replace_rom_page(0xf0820000, ML_MMU_64k_PAGE_01,
+                     ML_MMU_L2_TABLE_01_ADDR, flags_new);
+
+    *(uint32_t *)(ML_MMU_64k_PAGE_01) = *(uint32_t *)(0x800000);
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefba) = 'S';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbb) = 'e';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbc) = 'l';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbd) = 'f';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbe) = '-';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefbf) = 'd';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc0) = 'e';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc1) = 's';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc2) = 't';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc3) = 'r';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc4) = 'u';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc5) = 'c';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc6) = 't';
+    *(char *)(ML_MMU_64k_PAGE_01 + 0xefc7) = '\0';
 
     // sync caches over edited table region
     dcache_clean(ML_MMU_64k_PAGE_01, PAGE_SIZE);
-    dcache_clean(0xf00d0000, PAGE_SIZE);
-    dcache_clean(ML_MMU_L2_TABLE_ADDR, 0x400);
-    mmu_table_routine2(ML_MMU_L2_TABLE_ADDR, 0x400);
+    dcache_clean(0xf0820000, PAGE_SIZE);
+    dcache_clean(ML_MMU_L2_TABLE_01_ADDR, 0x400);
+    mmu_table_routine2(ML_MMU_L2_TABLE_01_ADDR, 0x400);
 
     // flush icache
 //    icache_invalidate(virt_addr, PAGE_SIZE);
 
-    dcache_clean(ML_MMU_TABLE_ADDR, mmu_table_size);
-    mmu_table_routine2(ML_MMU_TABLE_ADDR, mmu_table_size);
+    dcache_clean(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
+    mmu_table_routine2(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
 
     // update TTBRs (this DryOS function also triggers TLBIALL)
-    uint32_t cpu_mmu_offset = mmu_table_size - 0x100 + cpu_id * 0x80;
-    change_mmu_tables(ML_MMU_TABLE_ADDR + cpu_mmu_offset,
-                      ML_MMU_TABLE_ADDR,
-                      cpu_id);
-#endif
+    uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
+//    change_mmu_tables(ML_MMU_TABLE_ADDR + cpu_mmu_offset,
+//                      ML_MMU_TABLE_ADDR,
+//                      cpu_id);
+#endif // CONFIG_200D
     return;
 }
-#endif
+#endif // CONFIG_MMU_REMAP
 
 /* we need this ASM block to be the first thing in the file */
 //
@@ -160,7 +158,7 @@ asm(
 
 /* this does not compile on DIGIC 5 and earlier */
 #if defined(CONFIG_DIGIC_VII) || defined(CONFIG_DIGIC_VIII)
-#ifdef CONFIG_MMU_REMAP
+#ifdef CONFIG_EARLY_MMU_REMAP
     "bl remap_mmu\n" // Before CPU ID check, both cores will remap on D8.
                      // On (some? 200D at least) D7, only one core jumps to autoexec,
                      // so only one gets remapped here.
@@ -393,7 +391,7 @@ ml_cstart( void )
         /* Without this trick, RAM content until BFE00000 looks like electrical noise. */
         /* M50 has only 1 GiB, but MMU configuration is identical. Let's see what happens. */
         /* There is a small blob (running DryOS core) copied near 0x82000000. Skip this. */
-        memset32((uint32_t *) 0x41000000, 0x124B1DE0 /* RA(W)VIDEO*/, 0x82000000 - 0x41000000);
+        memset32((uint32_t *) 0x41000000, 0x124B1DE0 /* RA(W)VIDEO*/, 0x81000000 - 0x41000000);
         memset32((uint32_t *) 0x83000000, 0x124B1DE0 /* RA(W)VIDEO*/, 0xBFE00000 - 0x83000000);
       #else
         /* FIXME: only mark the memory actually available on each model */
