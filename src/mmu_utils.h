@@ -7,8 +7,16 @@
 
 #define L2_LARGEPAGE_MEMTYPE_MASK (0x700c)
 #define MMU_TABLE_SIZE (0x4900)
-#define PAGE_SIZE (0x10000)
-#define SECTION_SIZE (0x100000)
+#define MMU_PAGE_SIZE (0x10000)
+#define MMU_SECTION_SIZE (0x100000)
+
+extern void dcache_clean(uint32_t addr, uint32_t size);
+extern void icache_invalidate(uint32_t addr, uint32_t size);
+extern void dcache_clean_multicore(uint32_t addr, uint32_t size);
+
+// src: physical address of Canon-style L1 table (the 0x4000-byte-aligned main L1 table at its start, to be exact)
+// dst: phys addr of where we will copy src, then fixup some addresses so it's internally consistent
+int32_t copy_mmu_tables_ex(uint32_t dst, uint32_t src, uint32_t count);
 
 // retrieves L1 translation table flags in L2 table large page entry format
 // addr: address of source virtual memory chunk (section or supersection in L1 table)

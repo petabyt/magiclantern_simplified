@@ -34,6 +34,7 @@ THUMB_FN(0xDF00D299,  bzero32)                /* zeros out a data structure */
 THUMB_FN(0xDF006515,  create_init_task)       /* low-level DryOS initialization */
 THUMB_FN(0xE0040225,  init_task)              /* USER_MEM size checking, dmSetup, termDriverInit, stdlibSetup etc */
 THUMB_FN(0xE06BE169,  dcache_clean)           /* loop with MCR p15 c7,c10,1; DSB */
+THUMB_FN(0xe0013dcc,  dcache_clean_multicore) /* loop writing to c11007b0, called after dcache_clean by copy_mm_tables() */
 THUMB_FN(0xE06BE23D,  icache_invalidate)      /* loop with MCR p15 c7,c5,1; c7,c1,6; c7,c1,0; ISB */
 
 /** Tasks **/
@@ -231,6 +232,10 @@ THUMB_FN(0xe04cff73,  SRM_AllocateMemoryResourceFor1stJob) // "hJobMemorySuite" 
 THUMB_FN(0xe04d2e17,  SRM_FreeMemoryResourceFor1stJob) // find refs to "pMessage", there are several similar looking functions using it,
                                                        // this is my best guess - this one has pPriorMessage and sets offset 8
                                                        // in the struct to 0, offset 0x10 to param1
+ARM32_FN(0xe001654c, memcpy_dryos) // useful in eary contexts when we don't have
+                                   // dietlibc or newlib, and can't use stdio memcpy64 because
+                                   // that wants ML assert handling initialised.
+
 THUMB_FN(0xe04bbad7, _prop_cleanup) // "./Multicast/PropertyMgr.c" check funcs that ref this string
 THUMB_FN(0xdf00b67d,  CreateRecursiveLock) // via "KerRLock.c", CRL() calls a function that regs this string, not many do
 THUMB_FN(0xdf00b451,  AcquireRecursiveLock)

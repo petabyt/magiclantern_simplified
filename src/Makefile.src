@@ -244,14 +244,18 @@ ML_SRC_REBOOT_OBJ = reboot.o \
 	disp_direct.o font_direct.o \
 	strlen.o strcmp.o gcc-libgcc.a \
 	cache.o \
-	stubs.o \
-	footer.o
+	stubs.o
 endif
 ifeq ($(CONFIG_MMU_REMAP), y)
 ML_SRC_REBOOT_OBJ += \
 	mmu_utils.o \
 	patch_mmu.o
 endif
+# footer.o must be the last object linked in autoexec.bin,
+# or xor_chk can fail due to unexpected global objects
+# being placed later than footer_magic
+ML_SRC_REBOOT_OBJ += \
+	footer.o
 
 clean::
 	$(call rm_files, magiclantern.bin autoexec autoexec.map location.map tmp.lds)

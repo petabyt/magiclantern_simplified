@@ -28,6 +28,30 @@
 #error Attempting to build mmu_utils.c but cam not listed as having an MMU - this is probably a mistake
 #endif
 
+extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
+
+// src: physical address of Canon-style L1 table (the 0x4000-byte-aligned main L1 table at its start, to be exact)
+// dst: phys addr of where we will copy src, then fixup some addresses so it's internally consistent
+int32_t copy_mmu_tables_ex(uint32_t dst, uint32_t src, uint32_t count)
+{
+    // MMU L1 table must be 0x4000 aligned
+    if ((dst & 0x3fff) != 0)
+        return 0xffffffff;
+
+    memcpy_dryos((void *)dst, (void *)src, count);
+
+    // Fixup those parts of the tables that use absolute addressing.
+    //
+    // TODO we hardcode +0x4800, as Canon does, but that's ugly, size of MMU tables
+    // could change, so we should probably parse to find offset?
+    ((uint32_t *)dst)[0x1200] = (dst + 0x4000) | ((*(uint32_t *)(dst + 0x4800)) & 0x3ff);
+    ((uint32_t *)dst)[0x1220] = (dst + 0x4400) | ((*(uint32_t *)(dst + 0x4880)) & 0x3ff);
+
+    dcache_clean(dst, count);
+    dcache_clean_multicore(dst, count);
+    return 0;
+}
+
 // retrieves L1 translation table flags in L2 table large page entry format
 // addr: address of source virtual memory chunk (section or supersection in L1 table)
 // l1tableaddr: physical address of Canon-style L1 table (the 16kB aligned main L1 table at its start, to be exact)
@@ -89,7 +113,7 @@ int32_t split_l1_supersection(uint32_t addr, uint32_t l1tableaddr)
             return -2;
         }
         *entry = (val & 0xfffbffff) | m;
-        m += SECTION_SIZE;
+        m += MMU_SECTION_SIZE;
     }
     return 0;
 }
@@ -140,7 +164,7 @@ int32_t create_l2_table(uint32_t addr, uint32_t l2tableaddr, uint32_t flags)
     // set 'large page' flag
     flags = (flags & 0xfffffffc) | 1;
     unsigned m, n;
-    for (n=0; n<SECTION_SIZE; n+=PAGE_SIZE) {
+    for (n=0; n<MMU_SECTION_SIZE; n+=MMU_PAGE_SIZE) {
         for (m=0; m<16; m++) {
             unsigned *entry = (unsigned*)(l2tableaddr + m * 4);
             *entry = (addr + n) | flags;
@@ -197,7 +221,7 @@ void replace_rom_page(uint32_t romaddr, uint32_t ramaddr, uint32_t l2addr, uint3
 {
     // SJE FIXME - enforce the alignment checks for romaddr and ramaddr
     // copy 64kB "large" page to RAM
-    blob_memcpy((void*)ramaddr, (void*)romaddr, (void*)(romaddr + PAGE_SIZE));
+    memcpy_dryos((void*)ramaddr, (void*)romaddr, MMU_PAGE_SIZE);
     // make L2 table entry point to copied ROM content
     replace_large_page_in_l2_table(romaddr, ramaddr, l2addr, flags);
 }
