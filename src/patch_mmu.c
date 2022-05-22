@@ -14,34 +14,13 @@
 #if defined(CONFIG_EARLY_MMU_REMAP) && !defined(CONFIG_MMU_REMAP)
 #error "You shouldn't have early MMU remap without MMU remap"
 #endif
+#include "platform/mmu_patches.h"
 
 static uint32_t *tt_active = NULL; // Pointer to current MMU translation tables.
 static uint32_t *tt_inactive = NULL; // Used when editing tables.
 static uint32_t mmu_remap_initialised = 0;
 
 extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
-
-#ifdef CONFIG_200D
-// SJE FIXME quick hack put 200D test patches in here,
-// these should live in per cam dir really.
-static const unsigned char earl_grey_str[] = "Earl Grey, hot";
-struct region_patch mmu_patches[] =
-{
-#if CONFIG_FW_VERSION == 101 // ensure our hard-coded patch addresses are not broken
-                             // by a FW upgrade
-    {
-        // replace "Dust Delete Data" with "Earl Grey, hot",
-        // as a low risk (non-code) test that MMU remapping works.
-        .patch_addr = 0xf00d84e7,
-        .orig_content = NULL,
-        .patch_content = earl_grey_str,
-        .size = sizeof(earl_grey_str),
-        .description = "Tea"
-    }
-#endif // 200D FW_VERSION 101
-};
-
-#endif
 
 int patch_region(struct region_patch *patch)
 {
