@@ -27,6 +27,8 @@ extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
 static const unsigned char earl_grey_str[] = "Earl Grey, hot";
 struct region_patch mmu_patches[] =
 {
+#if CONFIG_FW_VERSION == 101 // ensure our hard-coded patch addresses are not broken
+                             // by a FW upgrade
     {
         // replace "Dust Delete Data" with "Earl Grey, hot",
         // as a low risk (non-code) test that MMU remapping works.
@@ -36,6 +38,7 @@ struct region_patch mmu_patches[] =
         .size = sizeof(earl_grey_str),
         .description = "Tea"
     }
+#endif // 200D FW_VERSION 101
 };
 
 #endif
