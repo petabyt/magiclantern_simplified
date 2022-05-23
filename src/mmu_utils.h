@@ -59,7 +59,7 @@ int32_t replace_large_page_in_l2_table(uint32_t addr, uint32_t replacement, uint
 // schedule tasks to update cpu(s) TTBR registers.
 //
 // Returns 0 if everything went okay, non-zero if any errors occured.
-int remap_page(uint32_t addr, uint32_t size, uint32_t *tt);
+int remap_page(uint32_t addr, uint32_t size, uint32_t tt);
 
 // replace a 64kB large ROM page with its RAM copy
 // romaddr: start of ROM page (64kB aligned), has to fall within the range of L2 table

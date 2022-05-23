@@ -16,8 +16,8 @@
 #endif
 #include "platform/mmu_patches.h"
 
-static uint32_t *tt_active = NULL; // Pointer to current MMU translation tables.
-static uint32_t *tt_inactive = NULL; // Used when editing tables.
+static uint32_t tt_active = 0; // Address of MMU translation tables that are in use.
+static uint32_t tt_inactive = 0; // Address of secondary tables, used when swapping.
 static uint32_t mmu_remap_initialised = 0;
 
 extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
@@ -127,8 +127,8 @@ void init_remap_mmu(void)
     {
         if (mmu_remap_initialised == 0)
         {
-            tt_active = (uint32_t *)ML_MMU_TABLE_01_ADDR;
-            tt_inactive = (uint32_t *)ML_MMU_TABLE_02_ADDR;
+            tt_active = ML_MMU_TABLE_01_ADDR;
+            tt_inactive = ML_MMU_TABLE_02_ADDR;
 
             copy_mmu_tables_ex(ML_MMU_TABLE_01_ADDR,
                                rom_base_addr,
@@ -168,7 +168,7 @@ void init_remap_mmu(void)
 
     // SJE FIXME hack, this block bodges enough init to test
     // patch_region()
-    tt_inactive = (uint32_t *)ML_MMU_TABLE_01_ADDR;
+    tt_inactive = ML_MMU_TABLE_01_ADDR;
     tt_active = tt_inactive;
     mmu_remap_initialised = 1;
 

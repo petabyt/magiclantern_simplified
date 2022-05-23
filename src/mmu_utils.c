@@ -207,7 +207,7 @@ int32_t replace_large_page_in_l2_table(uint32_t addr, uint32_t replacement, uint
 //
 // We bail if size means it would span two 64kB pages, this should happen
 // rarely enough that I can't be bothered handling it.
-int remap_page(uint32_t addr, uint32_t size, uint32_t *tt)
+int remap_page(uint32_t addr, uint32_t size, uint32_t tt)
 {
     return 0; // SJE FIXME make this do something, and map to E_PATCH error codes
 }
