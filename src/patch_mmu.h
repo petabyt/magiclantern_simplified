@@ -29,7 +29,7 @@ struct region_patch
 //
 // FIXME: this should probably do book-keeping stuff, see patch.c,
 // stuff around patch/unpatch function pairs
-int patch_region(struct region_patch *patch);
+int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2_table_addr);
 
 // Patches Thumb code, to add a hook to a function inside ML code.
 //

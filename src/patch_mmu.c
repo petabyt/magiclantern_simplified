@@ -18,11 +18,13 @@
 
 static uint32_t tt_active = 0; // Address of MMU translation tables that are in use.
 static uint32_t tt_inactive = 0; // Address of secondary tables, used when swapping.
+static uint32_t tt_l2_active = 0;
+static uint32_t tt_l2_inactive = 0;
 static uint32_t mmu_remap_initialised = 0;
 
 extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
 
-int patch_region(struct region_patch *patch)
+int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2_table_addr)
 {
     // SJE FIXME currently this is hideous 200D hard-coded crap,
     // this is dev work as we make patching more generic
@@ -45,19 +47,19 @@ int patch_region(struct region_patch *patch)
     // SJE TODO - do all the mmu_utils.c calls work safely if we call them
     // twice, especially with addresses in the same section?
     uint32_t aligned_patch_addr = patch->patch_addr & 0xffff0000;
-    split_l1_supersection(aligned_patch_addr, ML_MMU_TABLE_01_ADDR);
+    split_l1_supersection(aligned_patch_addr, l1_table_addr);
 
     // edit copy, pointing existing ROM code to our RAM versions
     replace_section_with_l2_tbl(aligned_patch_addr,
-                                ML_MMU_TABLE_01_ADDR,
-                                ML_MMU_L2_TABLE_01_ADDR,
+                                l1_table_addr,
+                                l2_table_addr,
                                 flags_new);
 
     // SJE quick hack test, try and replace a string from asset rom
     // f00d84e7 "Dust Delete Data"
     replace_rom_page(aligned_patch_addr,
                      ML_MMU_64k_PAGE_01,
-                     ML_MMU_L2_TABLE_01_ADDR,
+                     l2_table_addr,
                      flags_new);
 
     // Copy whole page ROM -> RAM
@@ -73,14 +75,14 @@ int patch_region(struct region_patch *patch)
     // sync caches over edited table region
     dcache_clean(ML_MMU_64k_PAGE_01, MMU_PAGE_SIZE);
     dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
-    dcache_clean(ML_MMU_L2_TABLE_01_ADDR, 0x400);
-    dcache_clean_multicore(ML_MMU_L2_TABLE_01_ADDR, 0x400);
+    dcache_clean(l2_table_addr, 0x400);
+    dcache_clean_multicore(l2_table_addr, 0x400);
 
     // flush icache
 //    icache_invalidate(virt_addr, MMU_PAGE_SIZE);
 
-    dcache_clean(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
-    dcache_clean_multicore(ML_MMU_TABLE_01_ADDR, MMU_TABLE_SIZE);
+    dcache_clean(l1_table_addr, MMU_TABLE_SIZE);
+    dcache_clean_multicore(l1_table_addr, MMU_TABLE_SIZE);
     // 
     return 0;
 }
@@ -169,10 +171,11 @@ void init_remap_mmu(void)
     // SJE FIXME hack, this block bodges enough init to test
     // patch_region()
     tt_inactive = ML_MMU_TABLE_01_ADDR;
+    tt_l2_inactive = ML_MMU_L2_TABLE_01_ADDR;
     tt_active = tt_inactive;
     mmu_remap_initialised = 1;
 
-    if (patch_region(&mmu_patches[0]) != 0)
+    if (patch_region(&mmu_patches[0], tt_inactive, tt_l2_inactive) != 0)
         while(1);
 
     // update TTBRs (this DryOS function also triggers TLBIALL)
