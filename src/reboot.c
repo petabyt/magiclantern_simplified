@@ -77,12 +77,6 @@ asm(
 
 /* this does not compile on DIGIC 5 and earlier */
 #if defined(CONFIG_DIGIC_VII) || defined(CONFIG_DIGIC_VIII)
-#ifdef CONFIG_EARLY_MMU_REMAP
-    "bl init_remap_mmu\n" // Before CPU ID check, both cores will run this on D8
-                          // (init code handles this and won't init twice).
-                          // On (some? 200D at least) D7, only one core jumps to autoexec,
-                          // so only one gets remapped here.  cpu1 remaps later.
-#endif
     "MRC    p15,0,R0,c0,c0,5\n" /* refuse to run ML on cores other than #0 */
     "ANDS.W R0, R0, #3\n"       /* read the lowest 2 bits of the MPIDR register */
     "ITTT   NE\n"               /* check if CPU ID is nonzero (i.e. other cores) */
@@ -278,6 +272,15 @@ void
 __attribute__((noreturn))
 ml_cstart( void )
 {
+#ifdef CONFIG_EARLY_MMU_REMAP
+    init_remap_mmu(); // This only runs on one core.  Could move it earlier,
+                      // and both cores on >=D8 will call it, but not D7,
+                      // and the globals in patch_mmu.c get stored in the region
+                      // the prior code checksums, so changes would be required
+                      // either way.
+                      //
+                      // SJE FIXME: somehow schedule early TTBR changes for cpu1
+#endif
     uint32_t s = compute_signature((void*)SIG_START, SIG_LEN);
     uint32_t expected_signature = CURRENT_CAMERA_SIGNATURE;
     if (s != expected_signature)

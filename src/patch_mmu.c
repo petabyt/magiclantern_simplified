@@ -1,11 +1,16 @@
 // Memory patching, using MMU on supported cams.
 // These cams can also do cache-hack patching,
 // which is less complicated.
+#ifdef CONFIG_MMU_REMAP
 
 #include <dryos.h>
 #include "patch_mmu.h"
 #include <patch.h>
 #include "mmu_utils.h"
+
+#ifndef CONFIG_DIGIC_78
+#error "So far, we've only seen MMU on Digic 7 and up.  This file makes that assumption re assembly, you'll need to fix something"
+#endif
 
 #ifndef CONFIG_MMU
 #error "Attempting to build patch_mmu.c but cam not listed as having an MMU - this is probably a mistake"
@@ -16,21 +21,16 @@
 #endif
 #include "platform/mmu_patches.h"
 
-static uint32_t tt_active = 0; // Address of MMU translation tables that are in use.
-static uint32_t tt_inactive = 0; // Address of secondary tables, used when swapping.
-static uint32_t tt_l2_active = 0;
-static uint32_t tt_l2_inactive = 0;
-static uint32_t mmu_remap_initialised = 0;
 
 extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
 
 int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2_table_addr)
 {
-    // SJE FIXME currently this is hideous 200D hard-coded crap,
-    // this is dev work as we make patching more generic
-
-    if (mmu_remap_initialised == 0)
-        return -1; // has init_remap_mmu() been called previously?
+    // SJE FIXME currently this is incomplete;
+    // we don't handle checking if a ROM page is already mapped
+    // and always tries to use the *same* RAM page to back any remap.
+    //
+    // THIS WILL BREAK if you try to map more than one 0x10000 region.
 
     uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
     // get original rom and ram memory flags
@@ -55,17 +55,11 @@ int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2
                                 l2_table_addr,
                                 flags_new);
 
-    // SJE quick hack test, try and replace a string from asset rom
-    // f00d84e7 "Dust Delete Data"
+    // Copy whole page ROM -> RAM, and remap
     replace_rom_page(aligned_patch_addr,
                      ML_MMU_64k_PAGE_01,
                      l2_table_addr,
                      flags_new);
-
-    // Copy whole page ROM -> RAM
-    memcpy_dryos((uint32_t *)ML_MMU_64k_PAGE_01,
-                 (uint32_t *)aligned_patch_addr,
-                 MMU_PAGE_SIZE);
 
     // Edit patch region in RAM copy
     memcpy_dryos((void *)(ML_MMU_64k_PAGE_01 + (patch->patch_addr & 0xffff)),
@@ -104,8 +98,8 @@ int insert_hook_code_thumb_mmu(uintptr_t patch_addr, uintptr_t target_function, 
     // with a clearer name and backed by MMU.
 
     // ensure page is remapped in the TT we will swap to
-    if (remap_page(patch_addr, 8, tt_active))
-        return -1; // SJE FIXME extend E_PATCH_* with MMU errors, see error_msg() in patch.c
+    //if (remap_page(patch_addr, 8, tt_active))
+    //    return -1; // SJE FIXME extend E_PATCH_* with MMU errors, see error_msg() in patch.c
 
     
     // schedule TTBR change(s)
@@ -113,77 +107,78 @@ int insert_hook_code_thumb_mmu(uintptr_t patch_addr, uintptr_t target_function, 
     return 0;
 }
 
-#ifdef CONFIG_MMU_REMAP
 
 extern uint32_t copy_mmu_tables(uint32_t dest_addr);
 extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
 void init_remap_mmu(void)
 {
+    static uint32_t tt_active = ML_MMU_TABLE_01_ADDR; // Address of MMU translation tables that are in use.
+    static uint32_t tt_l2_active = ML_MMU_L2_TABLE_01_ADDR;
+    static uint32_t tt_inactive = ML_MMU_TABLE_02_ADDR; // Address of secondary tables, used when swapping.
+    static uint32_t tt_l2_inactive = ML_MMU_L2_TABLE_02_ADDR;
+    static uint32_t mmu_remap_cpu0_init = 0;
+    static uint32_t mmu_remap_cpu1_init = 0;
+
     uint32_t cpu_id = get_cpu_id();
+    uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
     uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
 
-#if 0
     // Both CPUs want to use the updated MMU tables, but
     // only one wants to do the setup.
     if (cpu_id == 0)
     {
-        if (mmu_remap_initialised == 0)
+        if (mmu_remap_cpu0_init == 0)
         {
-            tt_active = ML_MMU_TABLE_01_ADDR;
-            tt_inactive = ML_MMU_TABLE_02_ADDR;
+            // copy original table to ram copy
+            //
+            // We can't use a simple copy, the table stores absolute addrs
+            // related to where it is located.  There's a DryOS func that
+            // does copy + address fixups
+            int32_t align_fail = copy_mmu_tables_ex(tt_active,
+                                                    rom_base_addr,
+                                                    MMU_TABLE_SIZE);
+            if (align_fail != 0)
+                while(1); // maybe we can jump to Canon fw instead?
+            align_fail = copy_mmu_tables_ex(tt_inactive,
+                                            rom_base_addr,
+                                            MMU_TABLE_SIZE);
+            if (align_fail != 0)
+                while(1); // maybe we can jump to Canon fw instead?
 
-            copy_mmu_tables_ex(ML_MMU_TABLE_01_ADDR,
-                               rom_base_addr,
-                               MMU_TABLE_SIZE);
+            mmu_remap_cpu0_init = 1;
 
-//            apply_mmu_patches(ML_MMU_TABLE_01_ADDR);
+            for(uint32_t i = 0; i < COUNT(mmu_patches); i++)
+            {
+                if (patch_region(&mmu_patches[i], tt_active, tt_l2_active) != 0)
+                    while(1);
+                if (patch_region(&mmu_patches[i], tt_inactive, tt_l2_inactive) != 0)
+                    while(1);
+            }
 
-            copy_mmu_tables_ex(ML_MMU_TABLE_01_ADDR,
-                               ML_MMU_TABLE_02_ADDR,
-                               MMU_TABLE_SIZE);
-
-            // trigger cpu1 remap
+            // update TTBRs (this DryOS function also triggers TLBIALL)
+            change_mmu_tables(tt_active + cpu_mmu_offset,
+                              tt_active,
+                              cpu_id);
         }
     }
     else
     {
-        // wait until mmu_remap_initialised, update TTBRs
-        while(mmu_remap_initialised == 0)
+        if (mmu_remap_cpu1_init == 0)
         {
-            // Can we msleep() in CONFIG_EARLY_MMU_REMAP context?
-            msleep(100);
+            while(mmu_remap_cpu0_init == 0)
+            {
+                // Can we msleep() in CONFIG_EARLY_MMU_REMAP context?
+                msleep(100);
+            }
+            // update TTBRs
+            // update TTBRs (this DryOS function also triggers TLBIALL)
+            change_mmu_tables(tt_active + cpu_mmu_offset,
+                              tt_active,
+                              cpu_id);
+            mmu_remap_cpu1_init = 1;
         }
     }
-#endif
 
-#ifdef CONFIG_200D
-    // copy original table to ram copy
-    //
-    // We can't use a simple copy, the table stores absolute addrs
-    // related to where it is located.  There's a DryOS func that
-    // does copy + address fixups
-    int32_t align_fail = copy_mmu_tables_ex(ML_MMU_TABLE_01_ADDR,
-                                            rom_base_addr,
-                                            MMU_TABLE_SIZE);
-    if (align_fail != 0)
-        while(1); // maybe we can jump to Canon fw instead?
-
-    // SJE FIXME hack, this block bodges enough init to test
-    // patch_region()
-    tt_inactive = ML_MMU_TABLE_01_ADDR;
-    tt_l2_inactive = ML_MMU_L2_TABLE_01_ADDR;
-    tt_active = tt_inactive;
-    mmu_remap_initialised = 1;
-
-    if (patch_region(&mmu_patches[0], tt_inactive, tt_l2_inactive) != 0)
-        while(1);
-
-    // update TTBRs (this DryOS function also triggers TLBIALL)
-    uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
-    change_mmu_tables(ML_MMU_TABLE_01_ADDR + cpu_mmu_offset,
-                      ML_MMU_TABLE_01_ADDR,
-                      cpu_id);
-#endif // CONFIG_200D
     return;
 }
 #endif // CONFIG_MMU_REMAP
