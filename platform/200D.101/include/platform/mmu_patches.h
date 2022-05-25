@@ -1,6 +1,8 @@
 #ifndef __PLATFORM_MMU_PATCHES_H__
 #define __PLATFORM_MMU_PATCHES_H__
 
+#include "patch_mmu.h"
+
 static const unsigned char earl_grey_str[] = "Earl Grey, hot";
 static const unsigned char engage_str[] = "Engage!";
 
@@ -33,11 +35,11 @@ struct region_patch mmu_patches[] =
 // a set of 64kB pages, for copying ROM contents into,
 // so they can be modified.  These do not need to be
 // contiguous.
-uint32_t mmu_ram_patch_pages[] =
+struct mmu_ram_page mmu_ram_patch_pages[] =
 {
-    0x43920000,
-    0x43930000,
-    0x43940000,
+    {0x43920000, 0},
+    {0x43930000, 0},
+    {0x43940000, 0},
 };
 
 #endif // 200D FW_VERSION 101

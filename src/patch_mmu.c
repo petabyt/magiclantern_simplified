@@ -57,17 +57,17 @@ int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2
 
     // Copy whole page ROM -> RAM, and remap
     replace_rom_page(aligned_patch_addr,
-                     mmu_ram_patch_pages[0],
+                     mmu_ram_patch_pages[0].phys_addr,
                      l2_table_addr,
                      flags_new);
 
     // Edit patch region in RAM copy
-    memcpy_dryos((void *)(mmu_ram_patch_pages[0] + (patch->patch_addr & 0xffff)),
+    memcpy_dryos((void *)(mmu_ram_patch_pages[0].phys_addr + (patch->patch_addr & 0xffff)),
                  (void *)(patch->patch_content),
                  patch->size);
 
     // sync caches over edited table region
-    dcache_clean(mmu_ram_patch_pages[0], MMU_PAGE_SIZE);
+    dcache_clean(mmu_ram_patch_pages[0].phys_addr, MMU_PAGE_SIZE);
     dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
     dcache_clean(l2_table_addr, 0x400);
     dcache_clean_multicore(l2_table_addr, 0x400);

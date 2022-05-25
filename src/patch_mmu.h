@@ -23,6 +23,12 @@ struct region_patch
     const char *description; // What is the patch for?  Shows in ML menus.
 };
 
+struct mmu_ram_page
+{
+    uint32_t phys_addr;
+    uint32_t in_use; // currently used to back a ROM->RAM mapping?
+};
+
 // Applies a patch to a region: but does not update TTBRs, so the patch is inactive.
 // The reasoning for this is that frequently you want to apply multiple patches,
 // then commit all at once with TTBR update.
