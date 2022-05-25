@@ -34,7 +34,7 @@ THUMB_FN(0xDF00D299,  bzero32)                /* zeros out a data structure */
 THUMB_FN(0xDF006515,  create_init_task)       /* low-level DryOS initialization */
 THUMB_FN(0xE0040225,  init_task)              /* USER_MEM size checking, dmSetup, termDriverInit, stdlibSetup etc */
 THUMB_FN(0xE06BE169,  dcache_clean)           /* loop with MCR p15 c7,c10,1; DSB */
-THUMB_FN(0xe0013dcc,  dcache_clean_multicore) /* loop writing to c11007b0, called after dcache_clean by copy_mm_tables() */
+THUMB_FN(0xe0013dcc,  dcache_clean_multicore) /* loop writing to c11007b0, called after dcache_clean by copy_mmu_tables() */
 THUMB_FN(0xE06BE23D,  icache_invalidate)      /* loop with MCR p15 c7,c5,1; c7,c1,6; c7,c1,0; ISB */
 
 /** Tasks **/
@@ -122,6 +122,7 @@ DATA_PTR(    0x799C,  mpu_recv_ring_buffer_tail) // ring buffer index incremente
 /** Misc **/
 THUMB_FN(0xE11C7CF9,  vsnprintf)              /* called near dmstart; references "01234567", "0123456789", "0123456789abcdef"
                                                  and "0123456789ABCDEF"; second arg is size; the one called by DebugMsg only knows %s */
+THUMB_FN(0xe00138c2,  early_printf) // printf compatible with bootloader context
 
 // SJE stuff found during investigation, maybe not needed for ML
 // but I wanted to call by name
