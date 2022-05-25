@@ -204,11 +204,6 @@
                                            //
                                            // I think these are size 0x400, not well checked.
 
-// SJE TODO make this an array of page addresses (possibly contiguous),
-// so we can check at runtime if it's possible to remap a requested address.
-#define ML_MMU_64k_PAGE_01 0x43920000 // some space to copy a ROM page into, where
-                                      // it can be edited and remapped
-
 #define BR_DCACHE_CLN_1   0xE0040068   /* first call to dcache_clean, before cstart */
 #define BR_ICACHE_INV_1   0xE0040072   /* first call to icache_invalidate, before cstart */
 #define BR_DCACHE_CLN_2   0xE00400A0   /* second call to dcache_clean, before cstart */
