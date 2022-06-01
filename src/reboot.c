@@ -33,10 +33,6 @@
 #define STR(x) STRx(x)
 #define STRx(x) #x
 
-#ifdef CONFIG_EARLY_MMU_REMAP
-extern void init_remap_mmu(void);
-#endif
-
 /* we need this ASM block to be the first thing in the file */
 //
 // SJE I believe the above comment is incorrect and the pragma
@@ -272,15 +268,6 @@ void
 __attribute__((noreturn))
 ml_cstart( void )
 {
-#ifdef CONFIG_EARLY_MMU_REMAP
-    init_remap_mmu(); // This only runs on one core.  Could move it earlier,
-                      // and both cores on >=D8 will call it, but not D7,
-                      // and the globals in patch_mmu.c get stored in the region
-                      // the prior code checksums, so changes would be required
-                      // either way.
-                      //
-                      // SJE FIXME: somehow schedule early TTBR changes for cpu1
-#endif
     uint32_t s = compute_signature((void*)SIG_START, SIG_LEN);
     uint32_t expected_signature = CURRENT_CAMERA_SIGNATURE;
     if (s != expected_signature)

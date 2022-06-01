@@ -24,11 +24,9 @@
 #include "mem.h"
 #include "mmu_utils.h"
 
-#ifndef CONFIG_MMU
-#error Attempting to build mmu_utils.c but cam not listed as having an MMU - this is probably a mistake
-#endif
+#ifdef CONFIG_MMU
 
-extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
+extern void *memcpy_dryos(void *dst, const void *src, uint32_t count);
 
 // src: physical address of Canon-style L1 table (the 0x4000-byte-aligned main L1 table at its start, to be exact)
 // dst: phys addr of where we will copy src, then fixup some addresses so it's internally consistent
@@ -198,20 +196,6 @@ int32_t replace_large_page_in_l2_table(uint32_t addr, uint32_t replacement, uint
     return 0;
 }
 
-// Given an address and size, determine containing supersection
-// in the given translation table, and split into sections if not already done.
-//
-// This does not get the CPUs to swap tables.
-//
-// Returns 0 if everything went okay, non-zero if any errors occured.
-//
-// We bail if size means it would span two 64kB pages, this should happen
-// rarely enough that I can't be bothered handling it.
-int remap_page(uint32_t addr, uint32_t size, uint32_t tt)
-{
-    return 0; // SJE FIXME make this do something, and map to E_PATCH error codes
-}
-
 // replace a 64kB large ROM page with its RAM copy
 // romaddr: start of ROM page (64kB aligned), has to fall within the range of L2 table
 // ramaddr: suitable 64kB aligned RAM address
@@ -219,9 +203,10 @@ int remap_page(uint32_t addr, uint32_t size, uint32_t tt)
 // flags: L2 table entry flags
 void replace_rom_page(uint32_t romaddr, uint32_t ramaddr, uint32_t l2addr, uint32_t flags)
 {
-    // SJE FIXME - enforce the alignment checks for romaddr and ramaddr
     // copy 64kB "large" page to RAM
-    memcpy_dryos((void*)ramaddr, (void*)romaddr, MMU_PAGE_SIZE);
+// SJE split out the copy, or we wipe first patch if there are two
+// patches in the same page.
+    //memcpy_dryos((void*)ramaddr, (void*)romaddr, MMU_PAGE_SIZE);
     // make L2 table entry point to copied ROM content
     replace_large_page_in_l2_table(romaddr, ramaddr, l2addr, flags);
 }
@@ -292,4 +277,4 @@ void replace_section_with_l2_tbl(uint32_t romaddr, uint32_t l1addr, uint32_t l2a
     *(unsigned*)(newa+8) = LDRW_PC_PC_T2; *(unsigned*)(newa+12) = ((orig+8)|1); \
     *(unsigned*)(origram) = LDRW_PC_PC_T2; *(unsigned*)(origram+4) = ((newa+16)|1); }
 
-
+#endif // CONFIG_MMU

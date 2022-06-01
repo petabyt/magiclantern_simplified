@@ -46,6 +46,10 @@ extern void platform_post_init();
 #include "gps.h"
 #endif
 
+#ifdef CONFIG_MMU_REMAP
+#include "patch_mmu.h"
+#endif
+
 #if defined(CONFIG_HELLO_WORLD)
 #include "fw-signature.h"
 #endif
@@ -587,7 +591,15 @@ void ml_crash_message(char* msg)
 /* called before Canon's init_task */
 void boot_pre_init_task()
 {
-#if !defined(CONFIG_HELLO_WORLD) && !defined(CONFIG_DUMPER_BOOTFLAG)
+#if defined(CONFIG_HELLO_WORLD) || defined(CONFIG_DUMPER_BOOTFLAG)
+    // don't hook
+#else
+    #ifdef CONFIG_MMU_REMAP
+    init_remap_mmu(); // This only runs on one core, meaning cpu1 won't see MMU based ROM patches
+                      //
+                      // SJE FIXME: somehow schedule early TTBR changes for cpu1,
+                      // possibly by hooking cpu1 init task
+    #endif
     // Install our task creation hooks
     qprint("[BOOT] installing task dispatch hook at "); qprintn((int)&task_dispatch_hook); qprint("\n");
     DryosDebugMsg(0, 15, "replacing task_dispatch_hook");

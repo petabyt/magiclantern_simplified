@@ -178,8 +178,8 @@
 // MMU translation tables, so we can edit one without disturbing the one
 // in active use, then swap.  Some cams work from a ram copy, which could
 // possibly be used as one of this pair.  I have not implemented this.
-#define ML_MMU_TABLE_01_ADDR 0x43910000 // A replacement TTBR0 table base addresses.
-#define ML_MMU_TABLE_02_ADDR 0x43918000 // Must be 0x4000 aligned or the Canon MMU copy routines
+#define MMU_L1_TABLE_01_ADDR 0x43910000 // A replacement TTBR0 table base addresses.
+#define MMU_L1_TABLE_02_ADDR 0x43918000 // Must be 0x4000 aligned or the Canon MMU copy routines
                                         // will fail.
                                         //
                                         // You can use low or high mirrored (uncache / cache) addresses,
@@ -194,15 +194,33 @@
                                         // Be very careful about finding an unused memory region
                                         // before attempting this.
 
-#define ML_MMU_L2_TABLE_01_ADDR 0x43915000 // Start of space where we will build MMU L2 table,
-#define ML_MMU_L2_TABLE_02_ADDR 0x4391d000 // for mapping ROM addresses to our replacement code.
-                                           //
-                                           // Must not overlap with base table!  So far this
-                                           // has size 0x4900.
-                                           //
-                                           // Must be 0x400 aligned.
-                                           //
-                                           // I think these are size 0x400, not well checked.
+#define MMU_MAX_L2_TABLES 0x6 // Each L2 table can remap 1MB of mem, 0x100000 aligned.
+
+#define MMU_L2_TABLES_START_ADDR 0x43914c00 // Start of space where we will build MMU L2 tables,
+                                            // for mapping ROM addresses to our replacement code.
+                                            //
+                                            // Must not overlap with base table!  Canon seems to always
+                                            // have these as size 0x4900.
+                                            //
+                                            // Must be 0x400 aligned.
+                                            //
+                                            // These are size 0x400 and you need two per 1MB ROM region
+                                            // that you're remapping, one for active, one for inactive
+                                            // translation tables.
+                                            //
+                                            // This example is placed in between the L1 table regions,
+                                            // which is enough space for 13 L2 tables, hence a max of 6.
+
+#define MMU_MAX_64k_PAGES_REMAPPED 0x6
+#define MMU_64k_PAGES_START_ADDR 0x43920000 // Space for 64kB pages in RAM, that ROM pages are mapped to.
+                                            // Multiple patches in the same region only need one page.
+                                            // Must be 0x10000 aligned.
+                                            //
+                                            // You must ensure this region is unused by DryOS,
+                                            // with size 0x10000 * MMU_MAX_64k_PAGES_REMAPPED
+
+#define MMU_L2_PAGES_INFO_START_ADDR 0x43a00000 // holds the metadata, this region needs to be
+                                                // sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES
 
 #define BR_DCACHE_CLN_1   0xE0040068   /* first call to dcache_clean, before cstart */
 #define BR_ICACHE_INV_1   0xE0040072   /* first call to icache_invalidate, before cstart */

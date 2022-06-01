@@ -119,6 +119,8 @@ ML_OBJS-y += \
 
 ML_SRC_OBJS = \
 	backtrace.o \
+	mmu_utils.o \
+	patch_mmu.o \
 	$(ML_BOOT_OBJ) \
 	$(ML_INIT_OBJ) \
 	fio-ml.o \
@@ -193,7 +195,7 @@ ML_SRC_OBJS = \
 # and may be wrong on Digic7.  The cache.o above provides the
 # same required symbol, allegedly in a less dangerous (though
 # still untested way)
-#	patch.o \
+#	patch.o
 
 
 ML_OBJS-y += $(ML_SRC_OBJS)
@@ -245,17 +247,12 @@ ML_SRC_REBOOT_OBJ = reboot.o \
 	strlen.o strcmp.o gcc-libgcc.a \
 	cache.o \
 	stubs.o
-endif
-ifeq ($(CONFIG_MMU_REMAP), y)
-ML_SRC_REBOOT_OBJ += \
-	mmu_utils.o \
-	patch_mmu.o
-endif
 # footer.o must be the last object linked in autoexec.bin,
 # or xor_chk can fail due to unexpected global objects
 # being placed later than footer_magic
 ML_SRC_REBOOT_OBJ += \
 	footer.o
+endif
 
 clean::
 	$(call rm_files, magiclantern.bin autoexec autoexec.map location.map tmp.lds)

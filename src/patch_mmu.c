@@ -1,12 +1,13 @@
 // Memory patching, using MMU on supported cams.
 // These cams can also do cache-hack patching,
 // which is less complicated.
-#ifdef CONFIG_MMU_REMAP
 
 #include <dryos.h>
 #include "patch_mmu.h"
 #include <patch.h>
 #include "mmu_utils.h"
+
+#ifdef CONFIG_MMU_REMAP
 
 #ifndef CONFIG_DIGIC_78
 #error "So far, we've only seen MMU on Digic 7 and up.  This file makes that assumption re assembly, you'll need to fix something"
@@ -16,22 +17,113 @@
 #error "Attempting to build patch_mmu.c but cam not listed as having an MMU - this is probably a mistake"
 #endif
 
-#if defined(CONFIG_EARLY_MMU_REMAP) && !defined(CONFIG_MMU_REMAP)
-#error "You shouldn't have early MMU remap without MMU remap"
-#endif
 #include "platform/mmu_patches.h"
 
+extern void *memcpy_dryos(void *dst, const void *src, uint32_t count);
+extern void early_printf(char *fmt, ...);
 
-extern void *memcpy_dryos(void *dst, void *src, uint32_t count);
-
-int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2_table_addr)
+int assign_64k_to_L2_table(struct region_patch *patch,
+                            struct mmu_L2_page_info *L2_page)
 {
-    // SJE FIXME currently this is incomplete;
-    // we don't handle checking if a ROM page is already mapped
-    // and always tries to use the *same* RAM page to back any remap.
-    //
-    // THIS WILL BREAK if you try to map more than one 0x10000 region.
+    // SJE TODO can / should we use a semaphore here?  I'm not sure we can
+    // given the fairly early context we want to call this.
 
+    // This index is how far into our set of available 64k RAM pages
+    // we are.  When exhausted, we have no more RAM to back ROM edits.
+    static uint32_t backing_page_index = 0;
+
+    // An L2 section is split into 64kB "large pages", of which there can be 16
+    // in use.  Determine which of these wants to be used.
+    uint32_t i = patch->patch_addr & 0x00f00000;
+    i >>= 20;
+    qprintf("L2 backing page index: 0x%08x\n", i);
+
+    // If possible, use that page, else, bail (we have run out of
+    // available RAM to use for backing ROM edits).
+    uint8_t **pages = L2_page->phys_mem;
+    if (pages[i] == NULL)
+    {
+        if (backing_page_index >= MMU_MAX_64k_PAGES_REMAPPED)
+            return -1;
+
+        pages[i] = (uint8_t *)(MMU_64k_PAGES_START_ADDR + MMU_PAGE_SIZE * backing_page_index);
+        memcpy_dryos(pages[i],
+                     (uint8_t *)(patch->patch_addr & 0xffff0000),
+                     MMU_PAGE_SIZE);
+        backing_page_index++;
+    }
+    else
+    { // We hit a page already allocated by a previous patch
+      // and can re-use it.
+        return 0;
+    }
+    return 0;
+}
+
+// Given an array of possible pages, some of which may be in use,
+// determine which page should be used for a given patch.
+// 
+// This is to make patches in the same 64kB region use the same
+// page in ram.
+//
+// Returns the 64k page of RAM that should be use for the patch.
+//
+// Returns NULL if no page can be found; this means there are too
+// many patches for the pages, all are in use and the patch
+// doesn't share an address.  Or, that a patch spans a 64kB
+// boundary, this is not handled.
+struct mmu_L2_page_info *find_L2_for_patch(struct region_patch *patch,
+                                           struct mmu_L2_page_info *l2_pages,
+                                           uint32_t num_pages)
+{
+    // L2 tables cover 1MB of remapped mem each
+
+    if (num_pages == 0)
+        return NULL;
+
+    // check our patch doesn't span two 64kB pages, this is unhandled (currently)
+    if (patch->patch_addr + patch->size > ((patch->patch_addr & 0xffff0000) + MMU_PAGE_SIZE))
+        return NULL;
+
+    // loop backwards so we assign unused pages forwards,
+    // meaning if called on a sorted set of pages they're
+    // assigned sorted by address.
+    struct mmu_L2_page_info *unused_page = NULL;
+    struct mmu_L2_page_info *l2_page = NULL;
+    for(uint32_t i = num_pages; i != 0; i--)
+    {
+        l2_page = (l2_pages + i - 1);
+        if (l2_page->virt_page_mapped == (patch->patch_addr & 0xfff00000) &&
+            l2_page->in_use)
+        {
+            if (assign_64k_to_L2_table(patch, l2_page) == 0)
+                return l2_page;
+            else
+                return NULL;
+        }
+        else if (l2_page->in_use == 0)
+        {
+            unused_page = l2_page;
+        }
+    }
+    if(unused_page == NULL) // no matching pages and no free pages; too many patches
+    {
+        //early_printf("Too many distinct patch addresses for available patch pages\n");
+        return NULL;
+    }
+
+    // page was free, no matches found, use this page
+    if (assign_64k_to_L2_table(patch, unused_page) == 0)
+    {
+        unused_page->virt_page_mapped = patch->patch_addr & 0xfff00000;
+        return unused_page;
+    }
+    return NULL; // could not assign 64k page, probably exhausted pool of pages
+}
+
+int apply_patch(struct mmu_config *mmu_conf,
+                struct region_patch *patch)
+{
     uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
     // get original rom and ram memory flags
     uint32_t flags_rom = get_l2_largepage_flags_from_l1_section(rom_base_addr, CANON_ORIG_MMU_TABLE_ADDR);
@@ -40,44 +132,55 @@ int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2
     uint32_t flags_new = flags_rom & ~L2_LARGEPAGE_MEMTYPE_MASK;
     flags_new |= (flags_ram & L2_LARGEPAGE_MEMTYPE_MASK);
 
-    // Split 16MB Supersection containing target addr into 16 Sections, in our copied table.
-    // We remap from start of rom for one section, e.g.:
-    //      0xe000.0000 to 0xe010.0000 can be remapped.
-
-    // SJE TODO - do all the mmu_utils.c calls work safely if we call them
-    // twice, especially with addresses in the same section?
     uint32_t aligned_patch_addr = patch->patch_addr & 0xffff0000;
-    split_l1_supersection(aligned_patch_addr, l1_table_addr);
 
-    // edit copy, pointing existing ROM code to our RAM versions
-    replace_section_with_l2_tbl(aligned_patch_addr,
-                                l1_table_addr,
-                                l2_table_addr,
+    struct mmu_L2_page_info *target_page = find_L2_for_patch(patch,
+                                                             mmu_conf->L2_tables,
+                                                             MMU_MAX_L2_TABLES);
+
+    if (target_page == NULL)
+    {
+        qprintf("Target page NULL: 0x%08x\n", patch);
+        return -1;
+    }
+
+    // add page to tables
+    qprintf("Doing TT edit: 0x%08x\n", aligned_patch_addr);
+    qprintf("Target L2: 0x%08x\n", target_page->l2_mem);
+
+    qprintf("Splitting L1 for: 0x%08x\n", patch->patch_addr);
+    // point containing L1 table entry to our L2
+    split_l1_supersection(patch->patch_addr, (uint32_t)mmu_conf->L1_table);
+    replace_section_with_l2_tbl(patch->patch_addr,
+                                (uint32_t)mmu_conf->L1_table,
+                                (uint32_t)target_page->l2_mem,
                                 flags_new);
 
-    // Copy whole page ROM -> RAM, and remap
+    // Remap ROM page in RAM
     replace_rom_page(aligned_patch_addr,
-                     mmu_ram_patch_pages[0].phys_addr,
-                     l2_table_addr,
+                     (uint32_t)target_page->phys_mem,
+                     (uint32_t)target_page->l2_mem,
                      flags_new);
+    target_page->in_use = 1;
 
     // Edit patch region in RAM copy
-    memcpy_dryos((void *)(mmu_ram_patch_pages[0].phys_addr + (patch->patch_addr & 0xffff)),
-                 (void *)(patch->patch_content),
+    memcpy_dryos(target_page->phys_mem + (patch->patch_addr & 0xffff),
+                 patch->patch_content,
                  patch->size);
 
     // sync caches over edited table region
-    dcache_clean(mmu_ram_patch_pages[0].phys_addr, MMU_PAGE_SIZE);
-    dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
-    dcache_clean(l2_table_addr, 0x400);
-    dcache_clean_multicore(l2_table_addr, 0x400);
+    dcache_clean((uint32_t)target_page->l2_mem, MMU_L2_TABLE_SIZE);
+    dcache_clean_multicore((uint32_t)target_page->l2_mem, MMU_L2_TABLE_SIZE);
 
     // flush icache
 //    icache_invalidate(virt_addr, MMU_PAGE_SIZE);
 
-    dcache_clean(l1_table_addr, MMU_TABLE_SIZE);
-    dcache_clean_multicore(l1_table_addr, MMU_TABLE_SIZE);
-    // 
+    dcache_clean((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
+    dcache_clean_multicore((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
+
+    dcache_clean((uint32_t)target_page->phys_mem, MMU_PAGE_SIZE);
+    dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
+
     return 0;
 }
 
@@ -107,17 +210,21 @@ int insert_hook_code_thumb_mmu(uintptr_t patch_addr, uintptr_t target_function, 
     return 0;
 }
 
-
 extern uint32_t copy_mmu_tables(uint32_t dest_addr);
-extern void change_mmu_tables(uint32_t ttbr0_address, uint32_t ttbr1_address, uint32_t cpu_id);
+extern void change_mmu_tables(uint8_t *ttbr0, uint8_t *ttbr1, uint32_t cpu_id);
 void init_remap_mmu(void)
 {
-    static uint32_t tt_active = ML_MMU_TABLE_01_ADDR; // Address of MMU translation tables that are in use.
-    static uint32_t tt_l2_active = ML_MMU_L2_TABLE_01_ADDR;
-    static uint32_t tt_inactive = ML_MMU_TABLE_02_ADDR; // Address of secondary tables, used when swapping.
-    static uint32_t tt_l2_inactive = ML_MMU_L2_TABLE_02_ADDR;
+    // SJE FIXME I don't like all the while(1) error "handling".
+    // I did this partly because we can't signal well here, partly because
+    // this code used to be in bootloader context where we can't signal well at all.
+    // Could change this to return int and handle errors at a higher level.
+    // Could use early_printf().
+    // Could fix the old code for giving a GUI error for early problems.
     static uint32_t mmu_remap_cpu0_init = 0;
     static uint32_t mmu_remap_cpu1_init = 0;
+
+    static struct mmu_config mmu_config_active = {NULL, NULL};
+    static struct mmu_config mmu_config_inactive = {NULL, NULL};
 
     uint32_t cpu_id = get_cpu_id();
     uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
@@ -127,37 +234,74 @@ void init_remap_mmu(void)
     // only one wants to do the setup.
     if (cpu_id == 0)
     {
+        // Technically, the following check is not race safe.
+        // Don't call it twice from the same CPU, in simultaneously scheduled tasks.
         if (mmu_remap_cpu0_init == 0)
         {
-            // copy original table to ram copy
+            mmu_remap_cpu0_init = 1;
+            mmu_config_active.L1_table = (uint8_t *)MMU_L1_TABLE_01_ADDR;
+            mmu_config_inactive.L1_table = (uint8_t *)MMU_L1_TABLE_02_ADDR;
+            mmu_config_active.L2_tables = (struct mmu_L2_page_info *)MMU_L2_PAGES_INFO_START_ADDR;
+            mmu_config_inactive.L2_tables = (struct mmu_L2_page_info *)(MMU_L2_PAGES_INFO_START_ADDR
+                                            + sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES);
+            // Copy original table to ram copies.
             //
             // We can't use a simple copy, the table stores absolute addrs
             // related to where it is located.  There's a DryOS func that
-            // does copy + address fixups
-            int32_t align_fail = copy_mmu_tables_ex(tt_active,
+            // does copy + address fixups, but that hardcodes 0xe000.0000 as the src.
+            int32_t align_fail = copy_mmu_tables_ex((uint32_t)mmu_config_active.L1_table,
                                                     rom_base_addr,
                                                     MMU_TABLE_SIZE);
             if (align_fail != 0)
                 while(1); // maybe we can jump to Canon fw instead?
-            align_fail = copy_mmu_tables_ex(tt_inactive,
+/*
+            align_fail = copy_mmu_tables_ex((uint32_t)mmu_config_inactive.L1_table,
                                             rom_base_addr,
                                             MMU_TABLE_SIZE);
             if (align_fail != 0)
                 while(1); // maybe we can jump to Canon fw instead?
+*/
 
-            mmu_remap_cpu0_init = 1;
-
-            for(uint32_t i = 0; i < COUNT(mmu_patches); i++)
+            if (COUNT(mmu_patches) > 0)
             {
-                if (patch_region(&mmu_patches[i], tt_active, tt_l2_active) != 0)
-                    while(1);
-                if (patch_region(&mmu_patches[i], tt_inactive, tt_l2_inactive) != 0)
-                    while(1);
+                // memset and calloc are not available this early, init our L2 page info manually
+                uint8_t *mmu_L2_tables = (uint8_t *)MMU_L2_TABLES_START_ADDR;
+
+                uint32_t i = 0;
+                for (i = 0; i < MMU_MAX_L2_TABLES; i++)
+                {
+                    for (uint8_t j = 0; j < MMU_MAX_64k_PAGES_REMAPPED; j++)
+                    {
+                        mmu_config_active.L2_tables[i].phys_mem[j] = NULL;
+                        mmu_config_inactive.L2_tables[i].phys_mem[j] = NULL;
+                    }
+                    mmu_config_active.L2_tables[i].l2_mem = (mmu_L2_tables + (i * MMU_L2_TABLE_SIZE));
+                    mmu_config_active.L2_tables[i].virt_page_mapped = 0x0;
+                    mmu_config_active.L2_tables[i].in_use = 0x0;
+
+                    mmu_config_inactive.L2_tables[i].l2_mem = (mmu_L2_tables + ((i + MMU_MAX_L2_TABLES) * MMU_L2_TABLE_SIZE));
+                    mmu_config_inactive.L2_tables[i].virt_page_mapped = 0x0;
+                    mmu_config_inactive.L2_tables[i].in_use = 0x0;
+                }
+
+                for (i = 0; i < COUNT(mmu_patches); i++)
+                {
+                    if (apply_patch(&mmu_config_active, &mmu_patches[i]) < 0)
+                        while(1);
+/*
+                    if (apply_patch(&mmu_config_inactive, &mmu_patches[i]) < 0)
+                        while(1);
+*/
+                }
+
+                #ifdef CONFIG_QEMU
+                // qprintf the results for debugging
+                #endif
             }
 
             // update TTBRs (this DryOS function also triggers TLBIALL)
-            change_mmu_tables(tt_active + cpu_mmu_offset,
-                              tt_active,
+            change_mmu_tables(mmu_config_active.L1_table + cpu_mmu_offset,
+                              mmu_config_active.L1_table,
                               cpu_id);
         }
     }
@@ -165,17 +309,16 @@ void init_remap_mmu(void)
     {
         if (mmu_remap_cpu1_init == 0)
         {
+            mmu_remap_cpu1_init = 1;
             while(mmu_remap_cpu0_init == 0)
             {
-                // Can we msleep() in CONFIG_EARLY_MMU_REMAP context?
                 msleep(100);
             }
             // update TTBRs
             // update TTBRs (this DryOS function also triggers TLBIALL)
-            change_mmu_tables(tt_active + cpu_mmu_offset,
-                              tt_active,
+            change_mmu_tables(mmu_config_active.L1_table + cpu_mmu_offset,
+                              mmu_config_active.L1_table,
                               cpu_id);
-            mmu_remap_cpu1_init = 1;
         }
     }
 

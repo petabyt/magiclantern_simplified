@@ -488,6 +488,17 @@ static void run_test()
     DryosDebugMsg(0, 15, "run_test fired");
 
 #if 0 && defined(CONFIG_MMU_REMAP)
+#include "patch_mmu.h"
+    extern struct mmu_ram_page mmu_ram_patch_pages[];
+    DryosDebugMsg(0, 15, "remap[0], VA: 0x%08x", mmu_ram_patch_pages[0].virt_page_mapped);
+    DryosDebugMsg(0, 15, "remap[0], in-use: %d", mmu_ram_patch_pages[0].in_use);
+    DryosDebugMsg(0, 15, "remap[1], VA: 0x%08x", mmu_ram_patch_pages[1].virt_page_mapped);
+    DryosDebugMsg(0, 15, "remap[1], in-use: %d", mmu_ram_patch_pages[1].in_use);
+    DryosDebugMsg(0, 15, "remap[2], VA: 0x%08x", mmu_ram_patch_pages[2].virt_page_mapped);
+    DryosDebugMsg(0, 15, "remap[2], in-use: %d", mmu_ram_patch_pages[2].in_use);
+#endif
+
+#if 0 && defined(CONFIG_MMU_REMAP)
     extern void dump_file(char* name, uint32_t addr, uint32_t size);
     dump_file("mmu.bin", ML_MMU_TABLE_ADDR, 0x20000);
     dump_file("f00d.bin", 0xf00d0000, 0x20000);

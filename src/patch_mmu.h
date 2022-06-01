@@ -2,14 +2,6 @@
 #define _patch_mmu_h_
 // Memory patching, using MMU on supported cams.
 
-#ifndef CONFIG_MMU
-#error "Attempting to build patch_mmu.c but cam not listed as having an MMU - this is probably a mistake"
-#endif
-
-#ifndef CONFIG_MMU_REMAP
-#error "Attempting to build patch_mmu.c but cam not listed as having support for MMU remapping - this is probably a mistake"
-#endif
-
 struct region_patch
 {
     uint32_t patch_addr; // Address of start of edited content; the VA to patch.
@@ -23,10 +15,20 @@ struct region_patch
     const char *description; // What is the patch for?  Shows in ML menus.
 };
 
-struct mmu_ram_page
+struct mmu_L2_page_info
 {
-    uint32_t phys_addr;
+    uint8_t *phys_mem[16]; // 16 possible 0x10000 pages of backing ram
+    uint8_t *l2_mem; // L2 table used for remapping into this page,
+                     // size MMU_L2_TABLE_SIZE.
+    uint32_t virt_page_mapped; // what 0x100000-aligned VA page addr is mapped here
     uint32_t in_use; // currently used to back a ROM->RAM mapping?
+};
+
+struct mmu_config
+{
+    uint8_t *L1_table; // single region of size MMU_TABLE_SIZE
+    struct mmu_L2_page_info *L2_tables; // struct, not direct access to L2 mem, so we can
+                                        // easily track which pages are mapped where.
 };
 
 // Applies a patch to a region: but does not update TTBRs, so the patch is inactive.
@@ -35,7 +37,7 @@ struct mmu_ram_page
 //
 // FIXME: this should probably do book-keeping stuff, see patch.c,
 // stuff around patch/unpatch function pairs
-int patch_region(struct region_patch *patch, uint32_t l1_table_addr, uint32_t l2_table_addr);
+int patch_region(struct region_patch *patch, uint32_t l1_table_addr);
 
 // Patches Thumb code, to add a hook to a function inside ML code.
 //
