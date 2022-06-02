@@ -54,6 +54,8 @@ THUMB_FN(0xE01CA9C9,  memmap_info)            /* Exception vector, DRYOS system 
 THUMB_FN(0xE0148E3B,  smemShowFix)            /* Common Lower, Common Upper etc */
 
 /** Memory allocation **/
+THUMB_FN(0xe021cd2c,  stdlibSetup) // needed for DryOS malloc
+THUMB_FN(0xdf0076d2,  init_AllocateMemory) // called in init_task, after uart_printf READY K437
 THUMB_FN(0xDF007B59, _AllocateMemory)
 THUMB_FN(0xDF007D11, _FreeMemory)
 THUMB_FN(0xDF0079E3,  GetMemoryInformation)   /* called from AllocateMemory */
@@ -233,7 +235,7 @@ THUMB_FN(0xe04cff73,  SRM_AllocateMemoryResourceFor1stJob) // "hJobMemorySuite" 
 THUMB_FN(0xe04d2e17,  SRM_FreeMemoryResourceFor1stJob) // find refs to "pMessage", there are several similar looking functions using it,
                                                        // this is my best guess - this one has pPriorMessage and sets offset 8
                                                        // in the struct to 0, offset 0x10 to param1
-ARM32_FN(0xe001654c, memcpy_dryos) // useful in eary contexts when we don't have
+ARM32_FN(0xe001654c, memcpy_dryos) // useful in early contexts when we don't have
                                    // dietlibc or newlib, and can't use stdio memcpy64 because
                                    // that wants ML assert handling initialised.
 
