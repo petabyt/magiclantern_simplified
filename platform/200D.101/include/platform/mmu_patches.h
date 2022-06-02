@@ -19,17 +19,6 @@ struct region_patch mmu_patches[] =
         .size = sizeof(earl_grey_str),
         .description = "Tea"
     },
-    /*
-    {
-        // SJE FIXME dummy patch to test algorithm
-//        .patch_addr = 0xf00d84e7,
-        .patch_addr = 0xe06d84e7,
-        .orig_content = NULL,
-        .patch_content = earl_grey_str,
-        .size = sizeof(earl_grey_str),
-        .description = "Tea2"
-    },
-    */
     {
         // replace "High ISO speed NR" with "Engage!",
         // as a low risk (non-code) test that MMU remapping works.

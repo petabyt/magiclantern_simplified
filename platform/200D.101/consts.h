@@ -211,16 +211,16 @@
                                             // This example is placed in between the L1 table regions,
                                             // which is enough space for 13 L2 tables, hence a max of 6.
 
-#define MMU_MAX_64k_PAGES_REMAPPED 0x6
-#define MMU_64k_PAGES_START_ADDR 0x43920000 // Space for 64kB pages in RAM, that ROM pages are mapped to.
+#define MMU_L2_PAGES_INFO_START_ADDR 0x43920000 // holds the metadata, this region needs to be
+                                                // sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES * 2
+
+#define MMU_MAX_64k_PAGES_REMAPPED 0x3
+#define MMU_64k_PAGES_START_ADDR 0x43930000 // Space for 64kB pages in RAM, that ROM pages are mapped to.
                                             // Multiple patches in the same region only need one page.
                                             // Must be 0x10000 aligned.
                                             //
                                             // You must ensure this region is unused by DryOS,
                                             // with size 0x10000 * MMU_MAX_64k_PAGES_REMAPPED
-
-#define MMU_L2_PAGES_INFO_START_ADDR 0x43a00000 // holds the metadata, this region needs to be
-                                                // sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES
 
 #define BR_DCACHE_CLN_1   0xE0040068   /* first call to dcache_clean, before cstart */
 #define BR_ICACHE_INV_1   0xE0040072   /* first call to icache_invalidate, before cstart */

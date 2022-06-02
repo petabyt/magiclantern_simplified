@@ -34,8 +34,8 @@ int assign_64k_to_L2_table(struct region_patch *patch,
 
     // An L2 section is split into 64kB "large pages", of which there can be 16
     // in use.  Determine which of these wants to be used.
-    uint32_t i = patch->patch_addr & 0x00f00000;
-    i >>= 20;
+    uint32_t i = patch->patch_addr & 0x000f0000;
+    i >>= 16;
     qprintf("L2 backing page index: 0x%08x\n", i);
 
     // If possible, use that page, else, bail (we have run out of
@@ -47,6 +47,7 @@ int assign_64k_to_L2_table(struct region_patch *patch,
             return -1;
 
         pages[i] = (uint8_t *)(MMU_64k_PAGES_START_ADDR + MMU_PAGE_SIZE * backing_page_index);
+        qprintf("Rom->Ram copy: 0x%08x, 0x%08x\n", pages[i], patch->patch_addr & 0xffff0000);
         memcpy_dryos(pages[i],
                      (uint8_t *)(patch->patch_addr & 0xffff0000),
                      MMU_PAGE_SIZE);
@@ -151,20 +152,27 @@ int apply_patch(struct mmu_config *mmu_conf,
     qprintf("Splitting L1 for: 0x%08x\n", patch->patch_addr);
     // point containing L1 table entry to our L2
     split_l1_supersection(patch->patch_addr, (uint32_t)mmu_conf->L1_table);
-    replace_section_with_l2_tbl(patch->patch_addr,
-                                (uint32_t)mmu_conf->L1_table,
-                                (uint32_t)target_page->l2_mem,
-                                flags_new);
+    if (target_page->in_use == 0)
+    { // this wipes the L2 table so we must only do it the first time
+      // we map a page in this section
+        replace_section_with_l2_tbl(patch->patch_addr,
+                                    (uint32_t)mmu_conf->L1_table,
+                                    (uint32_t)target_page->l2_mem,
+                                    flags_new);
+        target_page->in_use = 1;
+    }
 
     // Remap ROM page in RAM
+    uint32_t i = patch->patch_addr & 0x000f0000;
+    i >>= 16;
+    qprintf("Phys mem: 0x%08x\n", target_page->phys_mem[i]);
     replace_rom_page(aligned_patch_addr,
-                     (uint32_t)target_page->phys_mem,
+                     (uint32_t)target_page->phys_mem[i],
                      (uint32_t)target_page->l2_mem,
                      flags_new);
-    target_page->in_use = 1;
 
     // Edit patch region in RAM copy
-    memcpy_dryos(target_page->phys_mem + (patch->patch_addr & 0xffff),
+    memcpy_dryos(target_page->phys_mem[i] + (patch->patch_addr & 0xffff),
                  patch->patch_content,
                  patch->size);
 
@@ -178,7 +186,7 @@ int apply_patch(struct mmu_config *mmu_conf,
     dcache_clean((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
     dcache_clean_multicore((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
 
-    dcache_clean((uint32_t)target_page->phys_mem, MMU_PAGE_SIZE);
+    dcache_clean((uint32_t)target_page->phys_mem[i], MMU_PAGE_SIZE);
     dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
 
     return 0;
@@ -224,7 +232,7 @@ void init_remap_mmu(void)
     static uint32_t mmu_remap_cpu1_init = 0;
 
     static struct mmu_config mmu_config_active = {NULL, NULL};
-    static struct mmu_config mmu_config_inactive = {NULL, NULL};
+//    static struct mmu_config mmu_config_inactive = {NULL, NULL};
 
     uint32_t cpu_id = get_cpu_id();
     uint32_t cpu_mmu_offset = MMU_TABLE_SIZE - 0x100 + cpu_id * 0x80;
@@ -240,10 +248,10 @@ void init_remap_mmu(void)
         {
             mmu_remap_cpu0_init = 1;
             mmu_config_active.L1_table = (uint8_t *)MMU_L1_TABLE_01_ADDR;
-            mmu_config_inactive.L1_table = (uint8_t *)MMU_L1_TABLE_02_ADDR;
+//            mmu_config_inactive.L1_table = (uint8_t *)MMU_L1_TABLE_02_ADDR;
             mmu_config_active.L2_tables = (struct mmu_L2_page_info *)MMU_L2_PAGES_INFO_START_ADDR;
-            mmu_config_inactive.L2_tables = (struct mmu_L2_page_info *)(MMU_L2_PAGES_INFO_START_ADDR
-                                            + sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES);
+//            mmu_config_inactive.L2_tables = (struct mmu_L2_page_info *)(MMU_L2_PAGES_INFO_START_ADDR
+//                                            + sizeof(struct mmu_L2_page_info) * MMU_MAX_L2_TABLES);
             // Copy original table to ram copies.
             //
             // We can't use a simple copy, the table stores absolute addrs
@@ -262,42 +270,39 @@ void init_remap_mmu(void)
                 while(1); // maybe we can jump to Canon fw instead?
 */
 
-            if (COUNT(mmu_patches) > 0)
+            // memset and calloc are not available this early, init our L2 page info manually
+            uint8_t *mmu_L2_tables = (uint8_t *)MMU_L2_TABLES_START_ADDR;
+
+            uint32_t i = 0;
+            for (i = 0; i < MMU_MAX_L2_TABLES; i++)
             {
-                // memset and calloc are not available this early, init our L2 page info manually
-                uint8_t *mmu_L2_tables = (uint8_t *)MMU_L2_TABLES_START_ADDR;
-
-                uint32_t i = 0;
-                for (i = 0; i < MMU_MAX_L2_TABLES; i++)
+                for (uint8_t j = 0; j < 16; j++)
                 {
-                    for (uint8_t j = 0; j < MMU_MAX_64k_PAGES_REMAPPED; j++)
-                    {
-                        mmu_config_active.L2_tables[i].phys_mem[j] = NULL;
-                        mmu_config_inactive.L2_tables[i].phys_mem[j] = NULL;
-                    }
-                    mmu_config_active.L2_tables[i].l2_mem = (mmu_L2_tables + (i * MMU_L2_TABLE_SIZE));
-                    mmu_config_active.L2_tables[i].virt_page_mapped = 0x0;
-                    mmu_config_active.L2_tables[i].in_use = 0x0;
-
-                    mmu_config_inactive.L2_tables[i].l2_mem = (mmu_L2_tables + ((i + MMU_MAX_L2_TABLES) * MMU_L2_TABLE_SIZE));
-                    mmu_config_inactive.L2_tables[i].virt_page_mapped = 0x0;
-                    mmu_config_inactive.L2_tables[i].in_use = 0x0;
+                    mmu_config_active.L2_tables[i].phys_mem[j] = NULL;
+//                        mmu_config_inactive.L2_tables[i].phys_mem[j] = NULL;
                 }
+                mmu_config_active.L2_tables[i].l2_mem = (mmu_L2_tables + (i * MMU_L2_TABLE_SIZE));
+                mmu_config_active.L2_tables[i].virt_page_mapped = 0x0;
+                mmu_config_active.L2_tables[i].in_use = 0x0;
 
-                for (i = 0; i < COUNT(mmu_patches); i++)
-                {
-                    if (apply_patch(&mmu_config_active, &mmu_patches[i]) < 0)
-                        while(1);
-/*
-                    if (apply_patch(&mmu_config_inactive, &mmu_patches[i]) < 0)
-                        while(1);
-*/
-                }
-
-                #ifdef CONFIG_QEMU
-                // qprintf the results for debugging
-                #endif
+//                    mmu_config_inactive.L2_tables[i].l2_mem = (mmu_L2_tables + ((i + MMU_MAX_L2_TABLES) * MMU_L2_TABLE_SIZE));
+//                    mmu_config_inactive.L2_tables[i].virt_page_mapped = 0x0;
+//                    mmu_config_inactive.L2_tables[i].in_use = 0x0;
             }
+
+            for (i = 0; i < COUNT(mmu_patches); i++)
+            {
+                if (apply_patch(&mmu_config_active, &mmu_patches[i]) < 0)
+                    while(1);
+/*
+                if (apply_patch(&mmu_config_inactive, &mmu_patches[i]) < 0)
+                    while(1);
+*/
+            }
+
+            #ifdef CONFIG_QEMU
+            // qprintf the results for debugging
+            #endif
 
             // update TTBRs (this DryOS function also triggers TLBIALL)
             change_mmu_tables(mmu_config_active.L1_table + cpu_mmu_offset,
