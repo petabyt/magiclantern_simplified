@@ -245,6 +245,7 @@ THUMB_FN(0x0,  fsuDecodePartitionTable)
 // These are not strictly required, although recent dev work has added dependencies;
 // these likely should be removed before a "real" release
     THUMB_FN(0xe05952d0, uart_printf)
+THUMB_FN(0xe0006612, early_printf)
 #NSTUB(0xdf008c7c, uart_printf) // Thunked equivalent of the above.  Note, ARM, not Thumb.
                                // Both seem to work the same.
 

@@ -10,6 +10,11 @@
 
 //#define CONFIG_MARK_UNUSED_MEMORY_AT_STARTUP
 
+// Working, not thoroughly tested.
+// Cannot remap rom1 due to reads hanging cam
+// if accessed as early as we do remap.
+//#define CONFIG_MMU_REMAP
+
 // mostly working - task display is too crowded.
 // Maybe CPU usage should update faster?
 #define CONFIG_TSKMON
