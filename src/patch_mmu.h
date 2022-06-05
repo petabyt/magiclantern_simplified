@@ -31,14 +31,6 @@ struct mmu_config
                                         // easily track which pages are mapped where.
 };
 
-// Applies a patch to a region: but does not update TTBRs, so the patch is inactive.
-// The reasoning for this is that frequently you want to apply multiple patches,
-// then commit all at once with TTBR update.
-//
-// FIXME: this should probably do book-keeping stuff, see patch.c,
-// stuff around patch/unpatch function pairs
-int patch_region(struct region_patch *patch, uint32_t l1_table_addr);
-
 // Patches Thumb code, to add a hook to a function inside ML code.
 //
 // That ML function may choose to execute the stored instructions
@@ -54,6 +46,8 @@ int patch_region(struct region_patch *patch, uint32_t l1_table_addr);
 // with a clearer name and backed by MMU.
 int insert_hook_code_thumb_mmu(uintptr_t patch_addr, uintptr_t target_function, const char *description);
 
+// Sets up structures required for remapping via MMU,
+// and applies compile-time specified patches from platform/XXD/include/platform/mmu_patches.h
 void init_remap_mmu(void);
 
 #endif // _patch_mmu_h_

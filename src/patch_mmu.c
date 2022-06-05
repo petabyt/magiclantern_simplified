@@ -67,7 +67,11 @@ int assign_64k_to_L2_table(struct region_patch *patch,
 // This is to make patches in the same 64kB region use the same
 // page in ram.
 //
-// Returns the 64k page of RAM that should be use for the patch.
+// Returns info on the L2 table that should be use for the patch.
+// Which ram page within that region can be determined by masking
+// the patch address, an L2 table handles 1MB of ram and can have
+// up to 16 associated 64k ram pages assigned (depending on
+// MMU_MAX_64k_PAGES_REMAPPED).
 //
 // Returns NULL if no page can be found; this means there are too
 // many patches for the pages, all are in use and the patch
@@ -122,6 +126,25 @@ struct mmu_L2_page_info *find_L2_for_patch(struct region_patch *patch,
     return NULL; // could not assign 64k page, probably exhausted pool of pages
 }
 
+// Given info on a set of translation tables, and info about a patch,
+// update the tables to redirect accesses to some address range to
+// a copy held in ram.  This copy will be edited as described by the patch.
+// Note this does not instruct the CPU to use the new tables.
+//
+// The patch struct describes what address should be patched,
+// individual patches can be large (up to 64kB).
+//
+// NB this function doesn't update TTBR registers.
+// It does invalidate relevant cache entries.
+// It *doesn't* do this in a technically safe way;
+// We don't disable interrupts etc, so cache info could go
+// stale before we update TTBRs.
+// FIXME - probably with locks, cli/sei wrapping,
+// including getting cpu0 to sleep cpu1 before, wake after.
+// Note even then that's not fully safe; a task may be scheduled
+// that is paused, but executing code that is about to be patched.
+// It would wake up to find the instructions had altered and state
+// was inconsistent.  This is hard to handle reliably.
 int apply_patch(struct mmu_config *mmu_conf,
                 struct region_patch *patch)
 {
@@ -180,8 +203,8 @@ int apply_patch(struct mmu_config *mmu_conf,
     dcache_clean((uint32_t)target_page->l2_mem, MMU_L2_TABLE_SIZE);
     dcache_clean_multicore((uint32_t)target_page->l2_mem, MMU_L2_TABLE_SIZE);
 
-    // flush icache
-//    icache_invalidate(virt_addr, MMU_PAGE_SIZE);
+    // ensure icache takes new code if relevant
+    icache_invalidate(patch->patch_addr, MMU_PAGE_SIZE);
 
     dcache_clean((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
     dcache_clean_multicore((uint32_t)mmu_conf->L1_table, MMU_TABLE_SIZE);
