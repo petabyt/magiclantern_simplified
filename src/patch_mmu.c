@@ -345,7 +345,7 @@ void init_remap_mmu(void)
 //                    mmu_config_inactive.L2_tables[i].in_use = 0x0;
             }
 
-            for (i = 0; i < COUNT(mmu_data_patches); i++)
+            for (i = 0; i != COUNT(mmu_data_patches); i++)
             {
                 if (apply_data_patch(&mmu_config_active, &mmu_data_patches[i]) < 0)
                     while(1);
@@ -355,7 +355,7 @@ void init_remap_mmu(void)
 */
             }
 
-            for (i = 0; i < COUNT(mmu_code_patches); i++)
+            for (i = 0; i != COUNT(mmu_code_patches); i++)
             {
                 if (apply_code_patch(&mmu_config_active, &mmu_code_patches[i]) < 0)
                     while(1);

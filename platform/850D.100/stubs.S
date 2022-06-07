@@ -242,6 +242,9 @@ THUMB_FN(0x0,  fsuDecodePartitionTable)
     THUMB_FN(0xe00da090, XimrExe) // trigger Ximr unit to execute (HW compositor, partially understood)
     DATA_PTR(   0x11724,  winsys_sem)
 
+THUMB_FN(0xe00ddee0,  XCM_GetSourceSurface)
+DATA_PTR(  0x12dd58, _pXCM)
+
 // These are not strictly required, although recent dev work has added dependencies;
 // these likely should be removed before a "real" release
     THUMB_FN(0xe05952d0, uart_printf)
