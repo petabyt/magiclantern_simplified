@@ -15,6 +15,14 @@ struct region_patch
     const char *description; // What is the patch for?  Shows in ML menus.
 };
 
+struct function_hook_patch
+{
+    uint32_t patch_addr; // VA to patch.
+    uint8_t orig_content[8]; // Used as a check before applying patch.
+    uint32_t target_function_addr;
+    const char *description;
+};
+
 struct mmu_L2_page_info
 {
     uint8_t *phys_mem[16]; // 16 possible 0x10000 pages of backing ram

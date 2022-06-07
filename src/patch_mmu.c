@@ -145,8 +145,8 @@ struct mmu_L2_page_info *find_L2_for_patch(struct region_patch *patch,
 // that is paused, but executing code that is about to be patched.
 // It would wake up to find the instructions had altered and state
 // was inconsistent.  This is hard to handle reliably.
-int apply_patch(struct mmu_config *mmu_conf,
-                struct region_patch *patch)
+int apply_data_patch(struct mmu_config *mmu_conf,
+                     struct region_patch *patch)
 {
     uint32_t rom_base_addr = ROMBASEADDR & 0xff000000;
     // get original rom and ram memory flags
@@ -213,6 +213,36 @@ int apply_patch(struct mmu_config *mmu_conf,
     dcache_clean(aligned_patch_addr, MMU_PAGE_SIZE);
 
     return 0;
+}
+
+int apply_code_patch(struct mmu_config *mmu_conf,
+                     struct function_hook_patch *patch)
+{
+    // confirm orig_content matches
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        if (*(uint8_t *)(patch->patch_addr + i) != *(patch->orig_content + i))
+            return -1;
+    }
+
+    // our hook is 4 bytes for mov pc, [pc + 4]: 0xf000f8df
+    // followed by 4 bytes of address for the target
+    const uint8_t hook[8] = {0xdf, 0xf8, 0x00, 0xf0,
+                             (uint8_t)(patch->target_function_addr & 0xff),
+                             (uint8_t)((patch->target_function_addr >> 8) & 0xff),
+                             (uint8_t)((patch->target_function_addr >> 16) & 0xff),
+                             (uint8_t)((patch->target_function_addr >> 24) & 0xff)};
+
+    // create data patch to apply our hook
+    struct region_patch hook_patch = {
+        .patch_addr = patch->patch_addr,
+        .orig_content = NULL,
+        .patch_content = hook,
+        .size = 8,
+        .description = NULL
+    };
+
+    return apply_data_patch(mmu_conf, &hook_patch);
 }
 
 int insert_hook_code_thumb_mmu(uintptr_t patch_addr, uintptr_t target_function, const char *description)
@@ -315,15 +345,23 @@ void init_remap_mmu(void)
 //                    mmu_config_inactive.L2_tables[i].in_use = 0x0;
             }
 
-            for (i = 0; i < COUNT(mmu_patches); i++)
+            for (i = 0; i < COUNT(mmu_data_patches); i++)
             {
-                if (apply_patch(&mmu_config_active, &mmu_patches[i]) < 0)
+                if (apply_data_patch(&mmu_config_active, &mmu_data_patches[i]) < 0)
                     while(1);
 /*
-                if (apply_patch(&mmu_config_inactive, &mmu_patches[i]) < 0)
+                if (apply_data_patch(&mmu_config_inactive, &mmu_data_patches[i]) < 0)
                     while(1);
 */
             }
+
+            for (i = 0; i < COUNT(mmu_code_patches); i++)
+            {
+                if (apply_code_patch(&mmu_config_active, &mmu_code_patches[i]) < 0)
+                    while(1);
+            }
+            // SJE FIXME do inactive equiv for code patches here,
+            // if we're doing that at all
 
             #ifdef CONFIG_QEMU
             // qprintf the results for debugging
