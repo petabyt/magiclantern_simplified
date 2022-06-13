@@ -34,7 +34,7 @@ void __attribute__((noreturn,noinline,naked))hook_uart_printf(void)
 {
     asm(
         // do overwritten instructions
-        "push { r4, r5, r6, lr }\n"
+        "push { r4-r6, lr }\n"
         "mov r5, r0\n"
         "add r2, sp, #0x14\n"
         "ldr r1, [sp, #0x10]\n"
