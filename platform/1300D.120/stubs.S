@@ -41,7 +41,7 @@ NSTUB( ROMBASEADDR, firmware_entry )                        // 0xFE0C0000
 NSTUB(0xfe0c3a24,  cstart)                                  //
 NSTUB(   0x29898,  bzero32)                                 // called by cstart() rom
 NSTUB(    0x5250,  create_init_task)                        // must be called from ram
-NSTUB(0xfe129686,  init_task)                               // passed as arg to create_init_task, look for dmSetup
+NSTUB(0xfe129684,  init_task)                               // passed as arg to create_init_task, look for dmSetup
 NSTUB(   0x67430,  additional_version)
 
 /** File I/O **/
@@ -60,8 +60,8 @@ NSTUB(0xFE2A4180, _FIO_RemoveFile)                          //
 NSTUB(0xFE2A4AF0, _FIO_RenameFile)
 
 /** GUI **/
-NSTUB(   0x312dc,  gui_main_struct)                         // in gui_main_task
-NSTUB(   0x3d9cc,  gui_task_list)
+NSTUB(   0x3136C,  gui_main_struct)                         // in gui_main_task
+NSTUB(   0x3DA5C,  gui_task_list)
 NSTUB(0xFE0CCA48,  GUI_ChangeMode)
 NSTUB(0xFE0CC88C,  GUI_Control)
 NSTUB(0xfe14ef44,  SetGUIRequestMode)
