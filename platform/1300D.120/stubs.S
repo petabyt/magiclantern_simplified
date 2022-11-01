@@ -40,7 +40,7 @@
 NSTUB( ROMBASEADDR, firmware_entry )                        // 0xFE0C0000
 NSTUB(0xfe0c3a24,  cstart)                                  //
 NSTUB(   0x29898,  bzero32)                                 // called by cstart() rom
-NSTUB(    0x5254,  create_init_task)                        // must be called from ram
+NSTUB(    0x5250,  create_init_task)                        // must be called from ram
 NSTUB(0xfe129686,  init_task)                               // passed as arg to create_init_task, look for dmSetup
 NSTUB(   0x67430,  additional_version)
 
@@ -60,8 +60,8 @@ NSTUB(0xFE2A4180, _FIO_RemoveFile)                          //
 NSTUB(0xFE2A4AF0, _FIO_RenameFile)
 
 /** GUI **/
-NSTUB(   0x3136C,  gui_main_struct)                         // in gui_main_task
-NSTUB(   0x3DA5C,  gui_task_list)
+NSTUB(   0x312dc,  gui_main_struct)                         // in gui_main_task
+NSTUB(   0x3d9cc,  gui_task_list)
 NSTUB(0xFE0CCA48,  GUI_ChangeMode)
 NSTUB(0xFE0CC88C,  GUI_Control)
 NSTUB(0xfe14ef44,  SetGUIRequestMode)
@@ -112,7 +112,7 @@ NSTUB(0xfe71c6ac,  SetCFnData)
 // NSTUB(0xFE4716F0,  GUI_SetCFnForTab4)                    /* present on 7D.203 */
 
 /** Camera interface? **/
-// TODO:
+// UNPORTED
  NSTUB(0xC0220000,  camera_engine)
 
 /** MPU communication **/
@@ -120,27 +120,27 @@ NSTUB(0xfe299430, _mpu_send);                               /* dwSize < TXBD_DAT
 NSTUB(0xFE10FA70, _mpu_recv);                               /* registered in InitializeIntercom as CBR */
 
 /** DMA **/
-NSTUB(0xFE1244E0,  dma_memcpy)
+NSTUB(0xfe12449c,  dma_memcpy)
 
 /** Debug messages **/
 NSTUB(   0x31BF4,  dm_names)                                // in DebugMsg, before the 1st loop target
-NSTUB(0xFE11F394,  DryosDebugMsg)
-NSTUB(0xFE11F6FC,  dm_set_store_level)                      // called by "dmstore"
+NSTUB(0xfe11f350,  DryosDebugMsg)
+NSTUB(0xfe11f6b8,  dm_set_store_level)                      // called by "dmstore"
 
 /** Dialog API **/
-NSTUB(0xFE3F0A44,  dialog_redraw)
-NSTUB(0xFE2F8BF8,  dialog_set_property_str)
+NSTUB(0xfe3f0c20,  dialog_redraw)
+NSTUB(0xfe2f8dd4,  dialog_set_property_str)
 
 /** Dialog handlers **/
-NSTUB(0xFE5ACCEC,  ErrCardForLVApp_handler)                 // LiveViewErrorApp, as in 60D
-NSTUB(0xFE45573C,  ErrForCamera_handler)                    // ERR70, ERR80 etc (DlgErrForCamera.c, AJ_DIALOG.HANDLER_DlgErrForCamera.c)
-NSTUB(0xFE488590,  HideUnaviFeedBack_maybe)                 // look for StartUnaviFeedBackTimer
-NSTUB(0xFE48D148,  LiveViewApp_handler)
-NSTUB(0xFE48D7B4,  LiveViewApp_handler_BL_JudgeBottomInfoDispTimerState)
-NSTUB(0xFE48EDF0,  LiveViewApp_handler_end)                 // start of next function
-NSTUB(0xFE4A8C24,  PlayMain_handler)
-NSTUB(0xFE5E7BDC,  PlayMovieGuideApp_handler)
-NSTUB(0xFE49C300,  ShootOlcApp_handler)
+NSTUB(0xfe5acec8,  ErrCardForLVApp_handler)                 // LiveViewErrorApp, as in 60D
+NSTUB(0xfe455918,  ErrForCamera_handler)                    // ERR70, ERR80 etc (DlgErrForCamera.c, AJ_DIALOG.HANDLER_DlgErrForCamera.c)
+NSTUB(0xfe48876c,  HideUnaviFeedBack_maybe)                 // look for StartUnaviFeedBackTimer
+NSTUB(0xfe48d324,  LiveViewApp_handler)
+NSTUB(0xfe48d990,  LiveViewApp_handler_BL_JudgeBottomInfoDispTimerState)
+NSTUB(0xfe48efcc,  LiveViewApp_handler_end)                 // start of next function
+NSTUB(0xfe4a8e00,  PlayMain_handler)
+NSTUB(0xfe5e7db8,  PlayMovieGuideApp_handler)
+NSTUB(0xfe49c4dc,  ShootOlcApp_handler)
 
 // NSTUB(    ???,  LiveViewLevelApp_handler)                /* present on 5D3.113 */
 // NSTUB(    ???,  LiveViewShutterApp_handler)              /* present on 6D.113, 650D.104, EOSM.202, 700D.113 */
@@ -206,9 +206,9 @@ NSTUB(0xfe153e3c,  gui_local_post)
 NSTUB(0xfe154464,  gui_other_post)
 // NSTUB(    ???,  gui_change_lcd_state_post)               /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
 
-NSTUB(0xFE154890,  gui_change_shoot_type_post)              /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
-NSTUB(0xFE15511C,  gui_init_event)                          /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
-NSTUB(0xFE154808,  gui_post_10000085)                       /* present on 500D.111, 50D.109, 5D2.212 */
+NSTUB(0xfe15484c,  gui_change_shoot_type_post)              /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
+NSTUB(0xfe1550d8,  gui_init_event)                          /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
+NSTUB(0xfe1547c4,  gui_post_10000085)                       /* present on 500D.111, 50D.109, 5D2.212 */
 // NSTUB(    ???,  gui_timer_something)                     /* present on 7D.203, 500D.111, 50D.109, 5D2.212 */
 
 /** GUI timers **/
@@ -218,7 +218,7 @@ NSTUB(0xfe120ca8,  SetHPTimerAfterNow)
 NSTUB(0xfe120d98,  SetHPTimerNextTick)
 NSTUB(0xfe128f64,  SetTimerAfter)
 
-// ???????????
+// UNPORTED
 /** H264 Encoder **/
 NSTUB(   0x38AC8,  mvr_config)
 NSTUB(0xFE281D2C,  mvrFixQScale)
