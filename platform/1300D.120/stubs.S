@@ -297,6 +297,8 @@ NSTUB(0xfe2c30ac,  is_taskid_valid)                         // AJ_task_trampolin
 NSTUB(   0x31170,  current_task)
 NSTUB(     0x640,  current_interrupt)                       // in interrupt handler (0x18), where MEM(C0201004) is stored
 
+NSTUB(0x24c4,  _get_task_info_by_id) 
+
 /** Task sleep **/
 NSTUB(    0x3780,  msleep)                                  // called from EV_GETDONE_CACHE param 0x64
 
