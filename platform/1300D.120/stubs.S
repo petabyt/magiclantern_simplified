@@ -69,36 +69,27 @@ NSTUB(0xFE0CCEFC,  gui_init_end)                            // EndGuiInit
 NSTUB(0xFE0CC4BC,  gui_main_task)                           // message at 0x30, counter at 0x0c
 NSTUB(0xfe1517bc,  gui_massive_event_loop)                  // GUI_Control_Post
 NSTUB(0xfe2eb9d4,  GUI_SetLvMode)                           /* present on 500D.111, 50D.109, 5D2.212 */
-// NSTUB(    ???,  GUI_SetMovieSize_a)                      /* present on 50D.109 */
-// NSTUB(    ???,  GUI_SetMovieSize_b)                      /* present on 50D.109 */
-// NSTUB(0xfe2ebc08,  Gui_SetSoundRecord)                   /* present on 6D.113, 5D2.212 */
 
 /** ASIF **/
 // TODO:
 // NSTUB(0xfe108e44,  PowerAudioOutput)                       /* not found  old FE108E44 (??) */
-NSTUB(0xFE11B938,  SetAudioVolumeOut)  //FE11B938
-NSTUB(0xFE106A98,  SetNextASIFADCBuffer) //ok
-NSTUB(0xFE106C80,  SetNextASIFDACBuffer) //ok
-NSTUB(0xFE11C690,  SetSamplingRate) //FE11C690
-NSTUB(0xFE105F7C,  StartASIFDMAADC) //ok
-NSTUB(0xFE106350,  StartASIFDMADAC) //ok
+NSTUB(0xfe11b8f4,  SetAudioVolumeOut)  //FE11B938
+NSTUB(0xfe106a98,  SetNextASIFADCBuffer) //ok
+NSTUB(0xfe106c80,  SetNextASIFDACBuffer) //ok
+NSTUB(0xfe11c64c,  SetSamplingRate) //FE11C690
+NSTUB(0xfe105f7c,  StartASIFDMAADC) //ok
+NSTUB(0xfe106350,  StartASIFDMADAC) //ok
 NSTUB(0xfe1065d0,  StopASIFDMADAC) //FE1065D0
-NSTUB(0xfe11cd04,  PowerMicAmp) //FE11CD04                            /* present on 650D.104, EOSM.202, 700D.113 */
-//NSTUB(0xfe1066f8,  SetASIFMode) // este ok                            /* present on 700D.113 */
-//NSTUB(0xFE108E10,  SetAudioVolumeIn) //?                       /* present on 6D.113 */
-//NSTUB(0xFE108A70,  SoundDevActiveIn) //ok                       /* present on 7D.203, 6D.113, 650D.104, EOSM.202, 700D.113 */
-//NSTUB(0xFE108CC8,  SoundDevShutDownIn)//ok                      /* present on 7D.203, 6D.113, 650D.104, EOSM.202, 700D.113 */
-//NSTUB(0xFE106228,  StopASIFDMAADC) //ok                          /* present on 7D.203, 6D.113, EOSM.202 */
-
+NSTUB(0xfe11ccc0,  PowerMicAmp) //FE11CD04                            /* present on 650D.104, EOSM.202, 700D.113 */
 
 /** Audio **/
 NSTUB(    0x31604,  sounddev)                               // in sounddev_task
 // TODO: Not found direct write it looks like its some kind of serial connection now
-NSTUB(0xFE2B3A3C, _audio_ic_read) // FE2B3A3C
-NSTUB(0xFE2B36D4, _audio_ic_write) // posible sub_FE2B3A18
-NSTUB(0xFE8C32CC,  audio_thresholds)                        // find "ALV_Initialize", then pointer to "AudioLevel", thresholds are following array of 41 values
-NSTUB(0xFE108A70,  sounddev_active_in)                      // "SoundDevActiveIn"
-NSTUB(0xFE108660,  sounddev_task)                           // "[SND] _SoundDeviceTask"
+NSTUB(0xfe2b3c18, _audio_ic_read) // FE2B3A3C
+NSTUB(0xfe2b38b0, _audio_ic_write) // posible sub_FE2B3A18
+NSTUB(0xfe8c323c,  audio_thresholds)                        // find "ALV_Initialize", then pointer to "AudioLevel", thresholds are following array of 41 values
+NSTUB(0xfe108a70,  sounddev_active_in)                      // "SoundDevActiveIn" (CHECK)
+NSTUB(0xfe108660,  sounddev_task)                           // "[SND] _SoundDeviceTask"
 // NSTUB(    ???, _audio_ic_write_bulk)                     /* present on 6D.116 */
 
 /** Bitmap **/
@@ -117,13 +108,13 @@ NSTUB(0xfe71c6ac,  SetCFnData)
 
 /** MPU communication **/
 NSTUB(0xfe299430, _mpu_send);                               /* dwSize < TXBD_DATA_SIZE */
-NSTUB(0xFE10FA70, _mpu_recv);                               /* registered in InitializeIntercom as CBR */
+NSTUB(0xfe10fa70, _mpu_recv);                               /* registered in InitializeIntercom as CBR */
 
 /** DMA **/
 NSTUB(0xfe12449c,  dma_memcpy)
 
 /** Debug messages **/
-NSTUB(   0x31BF4,  dm_names)                                // in DebugMsg, before the 1st loop target
+NSTUB(   0x31BF4,  dm_names)                          g      // in DebugMsg, before the 1st loop target
 NSTUB(0xfe11f350,  DryosDebugMsg)
 NSTUB(0xfe11f6b8,  dm_set_store_level)                      // called by "dmstore"
 
@@ -197,7 +188,7 @@ NSTUB(0xfe122d10,  GetFirstChunkFromSuite)                  // AJ_PackMemory_Pac
 NSTUB(0xfe122760,  GetMemoryAddressOfMemoryChunk)           // AJ_PackMemory_PackMem.c_IsChunkSignature
 NSTUB(0xfe12349c,  GetNextMemoryChunk)
 NSTUB(0xfe0d5554,  SRM_AllocateMemoryResourceFor1stJob)
-NSTUB(0xFE0D7E54,  SRM_FreeMemoryResourceFor1stJob)         // this function was the same on 1.2.0 and 1.1.0 ??
+NSTUB(0xfe0d7e54,  SRM_FreeMemoryResourceFor1stJob)
 
 /** GUI for old cameras **/
 NSTUB(   0x36CAC,  gui_timer_struct)                        // in GUI_Control_Post
@@ -221,10 +212,10 @@ NSTUB(0xfe128f64,  SetTimerAfter)
 // UNPORTED
 /** H264 Encoder **/
 NSTUB(   0x38AC8,  mvr_config)
-NSTUB(0xFE281D2C,  mvrFixQScale)
-NSTUB(0xFE2817F0,  mvrSetDefQScale)
-NSTUB(0xFE281838,  mvrSetFullHDOptSize)
-NSTUB(0xFE281A1C,  mvrSetGopOptSizeFULLHD)
+NSTUB(0xfe281da8,  mvrFixQScale)
+NSTUB(0xfe28186c,  mvrSetDefQScale)
+NSTUB(0xfe2818b4,  mvrSetFullHDOptSize)
+NSTUB(0xfe281a98,  mvrSetGopOptSizeFULLHD)
 
 /** Interrupts **/
 // NSTUB(    ???,  isr_table_handler)                       /* present on 7D_MASTER.203 */
