@@ -177,6 +177,12 @@
 #define DISPLAY_GB_POS_X 305
 #define DISPLAY_GB_POS_Y 410
 
+#define DISPLAY_DATE_POS_X 425
+#define DISPLAY_DATE_POS_Y 445
+
+#define DISPLAY_BATTERY_POS_X 350
+#define DISPLAY_BATTERY_POS_Y 400
+
 // for displaying TRAP FOCUS msg outside LV
 #define DISPLAY_TRAP_FOCUS_POS_X 65
 #define DISPLAY_TRAP_FOCUS_POS_Y 360
@@ -261,6 +267,7 @@
 // see "Malloc Information"
 #define MALLOC_STRUCT 0x671A8
 #define MALLOC_FREE_MEMORY (MEM(MALLOC_STRUCT + 8) - MEM(MALLOC_STRUCT + 0x1C)) // "Total Size" - "Allocated Size"
+#define SRM_BUFFER_SIZE 0x1f68000 //0x14E8000   /* print it from srm_malloc_cbr */
 
 // for bulb ramping calibration: delay between two exposure readings (increase it if brightness updates slowly)
 // if not defined, default is 500

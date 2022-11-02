@@ -114,7 +114,7 @@ NSTUB(0xfe10fa70, _mpu_recv);                               /* registered in Ini
 NSTUB(0xfe12449c,  dma_memcpy)
 
 /** Debug messages **/
-NSTUB(   0x31BF4,  dm_names)                          g      // in DebugMsg, before the 1st loop target
+NSTUB(   0x31BF4,  dm_names)                                // in DebugMsg, before the 1st loop target
 NSTUB(0xfe11f350,  DryosDebugMsg)
 NSTUB(0xfe11f6b8,  dm_set_store_level)                      // called by "dmstore"
 
