@@ -7,6 +7,9 @@
 #ifndef _mem_h_
 #define _mem_h_
 
+#include <stddef.h>
+#include <stdint.h>
+
 /* this file needs to get included in dryos.h to replace old malloc / AllocateMemory calls */
 
 /* not used; will be replaced by macros in order to get calling context (file and line) */
@@ -70,11 +73,10 @@ extern void * realloc( void * buf, size_t newlen );
 extern void * calloc(size_t nmemb, size_t size);
 
 #define IS_ML_PTR(val) (((uintptr_t)(val) > (uintptr_t)0x1000) && ((uintptr_t)(val) < (uintptr_t)0x20000000))
-#ifndef CONFIG_DIGIC_678
-    // the range check used is not appropriate for D678, but,
-    // we don't use this macro on those platforms (no patching yet).
-    // Guard against future use.
+#if defined(CONFIG_DIGIC_2345)
     #define IS_ROM_PTR(val) ((uintptr_t)(val) > (uintptr_t)0xF0000000)
+#elif defined(CONFIG_DIGIC_78)
+    #define IS_ROM_PTR(val) ((uintptr_t)(val) > (uintptr_t)0xE0000000)
 #endif
 
 #define PTR_INVALID             ((void *)0xFFFFFFFF)
@@ -129,5 +131,13 @@ extern void* edmac_memcpy(void* dest, void* srce, size_t n);
 /* free memory info */
 int GetFreeMemForAllocateMemory();
 int GetFreeMemForMalloc();
+
+// aligned malloc, for when the start address must be aligned to some boundary,
+// e.g. MMU routines
+void *malloc_aligned(size_t len, uint32_t alignment);
+
+// aligned free, takes an aligned pointer, finds the block it's within,
+// and frees it.
+void free_aligned(void *ptr);
 
 #endif

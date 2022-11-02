@@ -34,6 +34,7 @@ THUMB_FN(0xDF00D299,  bzero32)                /* zeros out a data structure */
 THUMB_FN(0xDF006515,  create_init_task)       /* low-level DryOS initialization */
 THUMB_FN(0xE0040225,  init_task)              /* USER_MEM size checking, dmSetup, termDriverInit, stdlibSetup etc */
 THUMB_FN(0xE06BE169,  dcache_clean)           /* loop with MCR p15 c7,c10,1; DSB */
+THUMB_FN(0xe0013dcc,  dcache_clean_multicore) /* loop writing to c11007b0, called after dcache_clean by copy_mmu_tables() */
 THUMB_FN(0xE06BE23D,  icache_invalidate)      /* loop with MCR p15 c7,c5,1; c7,c1,6; c7,c1,0; ISB */
 
 /** Tasks **/
@@ -59,8 +60,8 @@ THUMB_FN(0xDF0079E3,  GetMemoryInformation)   /* called from AllocateMemory */
 THUMB_FN(0xDF0079B7,  GetSizeOfMaxRegion)
 THUMB_FN(0xDF00AC55, _alloc_dma_memory)
 THUMB_FN(0xDF00AC81, _free_dma_memory)
-THUMB_FN(0xE0693B23,  malloc)
-THUMB_FN(0xE0693B5B,  free)
+//THUMB_FN(0xE0693B23,  malloc)
+//THUMB_FN(0xE0693B5B,  free)
 
 /** Debug messages **/
 THUMB_FN(0xDF006E6D,  DryosDebugMsg)          /* lots of debug messages; format string is third argument */
@@ -108,6 +109,8 @@ DATA_PTR(    0x4034,  post_isr_hook)
 DATA_PTR(   0x6CC10,  isr_table_handler)
 DATA_PTR(   0x6CC14,  isr_table_param)
 THUMB_FN(0xE0137001,  cli_spin_lock)          /* used in AllocateMemory/FreeMemory and others */
+THUMB_FN(0xe0137048,  send_software_interrupt) // int 10 is used by DryOS to sleep/wake cpu1
+//THUMB_FN(0xe0004d30,  wfi_sinkhole) // used to make cpu wait for int 10
 
 /** MPU communication **/
 THUMB_FN(0xE01C7657,  mpu_send)                  // "dwSize < TXBD_DATA_SIZE"
@@ -303,7 +306,16 @@ THUMB_FN(0xe025e949, XimrContextInputLayerSetDimensions)
 THUMB_FN(0xe021ded9, WinSys_AllocateMemory)
 THUMB_FN(0xe021df7d, WinSys_FreeMemory)
 
-
+// MMU related, required by CONFIG_MMU features
+THUMB_FN(0xe0004a5a, change_mmu_tables) // Updates TTBRs and does TLB maintenance
+THUMB_FN(0xe0013cc4, copy_mmu_tables) // copies from one location to another,
+                                      // fixing up addresses held in table start,
+                                      // and doing cache maintenance
+// slightly MMU related, used by CONFIG_MMU_EARLY_REMAP
+ARM32_FN(0xe001654c, memcpy_dryos) // useful in early contexts when we don't have
+                                   // dietlibc or newlib, and can't use stdio memcpy64 because
+                                   // that wants ML assert handling initialised.
+THUMB_FN(0xe00138c2,  early_printf) // printf compatible with bootloader context
 
 
 DATA_PTR(   0xfd84,  bmp_vram_info) // function e04a044c looks relevant, see refs to 0x3c0 and 0x21c; 960x540

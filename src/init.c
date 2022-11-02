@@ -50,6 +50,10 @@ extern void platform_post_init();
 #include "fw-signature.h"
 #endif
 
+#if defined(CONFIG_MMU_EARLY_REMAP) || defined(CONFIG_MMU_REMAP)
+#include "patch.h"
+#endif
+
 static int _hold_your_horses = 1; // 0 after config is read
 int ml_started = 0; // 1 after ML is fully loaded
 int ml_gui_initialized = 0; // 1 after gui_main_task is started 
@@ -460,9 +464,15 @@ static void my_big_init_task()
    
     call("DisablePowerSave");
     _ml_cbr_init();
+#ifdef CONFIG_MMU_REMAP
+    // we must do this before any code wants to apply patches,
+    // notably, modules do this
+    if (mmu_init() < 0)
+        DryosDebugMsg(0, 15, "ERROR doing mmu_init() in late context");
+#endif
     menu_init();
     debug_init();
-    call_init_funcs();
+    call_init_funcs(); // among other things, this initialises modules
     msleep(200); // leave some time for property handlers to run
 
     /**
@@ -587,7 +597,18 @@ void ml_crash_message(char* msg)
 /* called before Canon's init_task */
 void boot_pre_init_task()
 {
-#if !defined(CONFIG_HELLO_WORLD) && !defined(CONFIG_DUMPER_BOOTFLAG)
+#if defined(CONFIG_HELLO_WORLD) || defined(CONFIG_DUMPER_BOOTFLAG)
+    // don't hook
+#else
+    #if defined(CONFIG_MMU_EARLY_REMAP)
+    // This only runs on one core, meaning cpu1 won't see MMU_EARLY patches.
+    // Digic 7 and 8 behave differently here and it looked like a lot of work
+    // to get D7 remapping on both cores.  This early remap so far only looks
+    // necessary for some kinds of debugging / testing work, you can remap
+    // after OS is initialised and do both cores on all cams then.
+    if (mmu_init() < 0)
+        DryosDebugMsg(0, 15, "ERROR doing mmu_init() in early context");
+    #endif
     // Install our task creation hooks
     qprint("[BOOT] installing task dispatch hook at "); qprintn((int)&task_dispatch_hook); qprint("\n");
     DryosDebugMsg(0, 15, "replacing task_dispatch_hook");

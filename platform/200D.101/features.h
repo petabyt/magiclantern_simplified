@@ -43,6 +43,16 @@
 #define FEATURE_GLOBAL_DRAW
 #define FEATURE_CROPMARKS
 
+// Enable remapping ROM pages to RAM, before DryOS is initialised.
+// Requires MMU, obviously, but also needs safe memory located
+// that DryOS doesn't touch, for the remap process.
+// Can't use malloc this early on.
+//#define CONFIG_MMU_EARLY_REMAP
+
+// Enable remapping ROM pages to RAM, after DryOS is initialised.
+#define CONFIG_SGI_HANDLERS
+#define CONFIG_MMU_REMAP
+
 // prevent ML attempting stack unwinding in some cases.
 // This does not yet work (assumes ARM, not Thumb).  Alex recommends
 // a good looking fix:
