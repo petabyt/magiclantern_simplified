@@ -94,10 +94,7 @@
 
 // for gui_main_task
 #define GMT_NFUNCS 7
-#define GMT_FUNCTABLE 0xFE851F20
-
-
-
+#define GMT_FUNCTABLE 0xfe8520fc
 
 #define LV_BOTTOM_BAR_DISPLAYED (((*(int8_t*)0x3830C) == 0xF) || ((*(int8_t*)0x3FE14) != 0x17))
 #define LV_BOTTOM_BAR_STATE (*(uint8_t*)0x3AA80) // in JudgeBottomInfoDispTimerState, if bottom bar state is 2, Judge returns 0; ML will make it 0 to hide bottom bar
