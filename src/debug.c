@@ -41,8 +41,12 @@ void audio_reg_dump_once();
 #include "edmac-memcpy.h"
 #endif
 
+char camera_serial[32];
+
 extern int config_autosave;
 extern void config_autosave_toggle(void* unused, int delta);
+//cristi
+extern void powersave_prolong();
 
 static struct semaphore * beep_sem = 0;
 
@@ -124,33 +128,22 @@ static void dump_rom_task(void* priv, int unused)
     msleep(200);
     FILE * f = NULL;
 
-// Digic 6 doesn't have ROM0
-#if defined(CONFIG_DIGIC_45) || defined(CONFIG_DIGIC_78)
     f = FIO_CreateFile("ML/LOGS/ROM0.BIN");
     if (f)
     {
         bmp_printf(FONT_LARGE, 0, 60, "Writing ROM0");
-    #if defined(CONFIG_DIGIC_45)
-        FIO_WriteFile(f, (void*) 0xF0000000, 0x01000000);
-    #elif defined(CONFIG_DIGIC_78)
-        FIO_WriteFile(f, (void*) 0xE0000000, 0x04000000); // max seen so far
-    #endif
+        FIO_WriteFile(f, (void*) 0x01000000, 0x02000000);
+//        FIO_WriteFile(f, (void*) 0xF0000000, 0x02000000);
         FIO_CloseFile(f);
     }
     msleep(200);
-#endif
 
     f = FIO_CreateFile("ML/LOGS/ROM1.BIN");
     if (f)
     {
         bmp_printf(FONT_LARGE, 0, 60, "Writing ROM1");
-    #if defined(CONFIG_DIGIC_45)
-        FIO_WriteFile(f, (void*) 0xF8000000, 0x01000000);
-    #elif defined(CONFIG_DIGIC_6)
-        FIO_WriteFile(f, (void*) 0xFE000000, 0x02000000);
-    #elif defined(CONFIG_DIGIC_78)
-        FIO_WriteFile(f, (void*) 0xF0000000, 0x02000000); // max seen so far
-    #endif
+//        FIO_WriteFile(f, (void*) 0x01000000, 0x02000000);
+        FIO_WriteFile(f, (void*) 0xF8000000, 0x02000000);
         FIO_CloseFile(f);
     }
     msleep(200);
@@ -286,513 +279,237 @@ void guimode_test()
     }
 }
 #endif
-
-#ifdef CONFIG_200D
-extern void GetMemoryInformation(uint32_t *, uint32_t *);
-extern char* WinSys_AllocateMemory(uint32_t size);
-extern void WinSys_FreeMemory(void *);
-extern void maybe_read_mpu_logs(void);
-static uint32_t is_hooked = 0;
-static uint32_t intercepted_val = 0;
-static void hook_target()
+static uint32_t count=0;
+#include "patch.h"
+#ifdef CONFIG_DEBUG_INTERCEPT
+static void run_test1()
 {
-    //DryosDebugMsg(0, 15, "in hook code"); // hangs in this context
-    //info_led_blink(3, 150, 150); // also hangs in this context
-    //hook_result = 1; // this is okay
-
-    uint32_t val;
-
-    // r1 contains size to alloc
-    asm __volatile__ (
-        "mov %0, r1" : "=r" (val)
-    );
-
-    intercepted_val = val;
-}
-
-void hook_memoryManager_AllocateMemory()
-{
-/*
-Hook code:
-.syntax unified
-.code 16
-
-hook_function_address:
-    .align 2
-    .word 0x01010101
-ret_address:
-    .word 0x02020202
-
-code:
-    .align 2
-    nop
-    nop
-    nop
-    nop
-    push {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, lr}
-    ldr r6, hook_function_address
-    blx r6
-
-ret:
-    pop {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, lr}
-    // do stolen instruction here
-    push { r4, r5, r6, r7, r8, r9, r10, lr  } // from df007a64
-    ldr pc, #ret_address
-
-arm-none-eabi-gcc -c -fPIC -march=armv7-a -mthumb arm_test.S && arm-none-eabi-objdump -drwC arm_test.o
-
-00000008 <code>:
-   8:	bf00      	nop
-   a:	bf00      	nop
-   c:	bf00      	nop
-   e:	bf00      	nop
-  10:	e92d 47ff 	stmdb	sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, sl, lr}
-  14:	f85f 6018 	ldr.w	r6, [pc, #-24]	; 0 <hook_function_address>
-  18:	47b0      	blx	r6
-
-0000001a <ret>:
-  1a:	e8bd 47ff 	ldmia.w	sp!, {r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, sl, lr}
-  1e:	e92d 47f0 	stmdb	sp!, {r4, r5, r6, r7, r8, r9, sl, lr}
-  22:	f85f f020 	ldr.w	pc, [pc, #-32]	; 4 <ret_address>
-  26:	bf00      	nop
-*/
-
-    uint32_t stage2_addr = 0xdf00f5c1; // Note thumb bit set on both of these,
-    uint32_t hook_addr = 0xdf007a65;   // when using below, sometimes you must
-                                       // adjust this, sometimes not.
-
-    // setup 2nd stage hook in empty space at 0xdf00f600
-    // (allows 1st stage hook to be shorter, as within 32MB)
-    int *stage2 = (int *)(stage2_addr & 0xfffffffe);
-    *(stage2 + 0) = (uint32_t)hook_target | 0x1; // ensure Thumb bit set
-    *(stage2 + 1) = 0xdf007a69; // addr to jump back to after hook code finished
-
-    *(stage2 + 2) = 0xbf00bf00;
-    *(stage2 + 3) = 0xbf00bf00;
-    *(stage2 + 4) = 0x47ffe92d;
-    *(stage2 + 5) = 0x6018f85f;
-    *(stage2 + 6) = 0xe8bd47b0;
-    *(stage2 + 7) = 0xe92d47ff;
-    *(stage2 + 8) = 0xf85f47f0;
-    *(stage2 + 9) = 0xbf00f020;
-    *(stage2 + 10) = 0xbf00bf00;
-    sync_caches();
-
-// 1st stage hook
-    // insert jump to 2nd stage hook
-
-    // What instruction to hook with depends on whether
-    // the target instruction is Arm or Thumb.  If we used
-    // bx reg we could avoid this, but then we need to
-    // modify more bytes for the hook.
-    //
-    // Here we are hooking Thumb code, and this code is Thumb,
-    // so we can use b.w.  The T4 encoding allows the most range,
-    // 23 bits, +-16MB, 0xfffffe to ff000002
-    //
-    // The encoding is kind of funky, the bits of the branch target
-    // are non-contiguous:
-    // https://developer.arm.com/documentation/ddi0406/cb/Application-Level-Architecture/Instruction-Details/Alphabetical-list-of-instructions/B?lang=en
-    // 
-    // 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0|15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0|
-    // ------------------------------------------------------------------------------------------------
-    //  1  1  1  1  0| S|            imm10            | 1  0|J1| 1|J2|             imm11              |
-    //
-    // I1 = NOT(J1 EOR S);  I2 = NOT(J2 EOR S);  imm32 = SignExtend(S:I1:I2:imm10:imm11:’0’, 32);
-
-    uint32_t hook_instr = 0x9000f000; // all the fixed bits set, NB, words are swapped from above,
-                                      // because Thumb mode is 16-bit little-endian
-    int32_t offset = ((stage2_addr + 10) - hook_addr - 4) / 2; // +8 to skip the consts preceding the stage2 start,
-                                                               // then some of the nop slide "for luck", 
-                                                               // -4 for PC offset in Thumb mode,
-                                                               // /2 because offsets are encoded as 16-bit wide instruction count
-    DryosDebugMsg(0, 15, "raw offset: 0x%x", stage2_addr - hook_addr);
-    uint32_t sign_bit = 0;
-    if (offset < 0)
-        sign_bit = 1 << 10;
-    hook_instr |= sign_bit;
-
-    if (offset > 0x7fffff || offset < -0x7fffff)
-    {
-        DryosDebugMsg(0, 15, "hook too far to encode, offset: 0x%x", offset);
-        goto bail;
-    }
-
-    uint32_t imm11 = offset & 0x7ff; // lowest 11 bits
-    uint32_t imm10 = (offset >> 11) & 0x3ff;
-    hook_instr |= imm10;
-    hook_instr |= (imm11 << 16);
-
-    uint32_t i1 = (offset >> 22) & 0x1;
-    uint32_t i2 = (offset >> 21) & 0x1;
-    uint32_t j1, j2;
-    if (sign_bit)
-    {
-        j1 = i1;
-        j2 = i2;
-    }
-    else
-    {
-        j1 = i1 ^ 1;
-        j2 = i2 ^ 1;
-    }
-    hook_instr |= j1 << (16 + 13);
-    hook_instr |= j2 << (16 + 11);
-
-    // last sanity check!
-    DryosDebugMsg(0, 15, "hook instr to insert: 0x%x", hook_instr);
-    DryosDebugMsg(0, 15, "hook insert at: 0x%x", hook_addr & 0xfffffffe);
     msleep(1000);
-    //return;
-
-    // activate hook, this will break things if
-    // you did anything wrong
-    *(int *)(hook_addr & 0xfffffffe) = hook_instr;
-    sync_caches();
-    is_hooked = 1;
-    DryosDebugMsg(0, 15, "hook after insert: 0x%x", *(int *)(hook_addr & 0xfffffffe));
-
-bail:
-    return;
+    SetGUIRequestMode(GUIMODE_PLAY); // go to PLAY mode
+    msleep(1000);
+    debug_intercept();     // start logging
+    SetGUIRequestMode(0);  // back to LiveView
+    msleep(1000);
+    debug_intercept();     // stop logging
 }
-#endif
+#else
 
-#if 1
-static void test_task(void *size)
-{
-    DryosDebugMsg(0, 15, " ==== test_task, size: 0x%x", (int)size);
-}
-#endif
-
-void mem_to_file(char *name, uint32_t addr, uint32_t size)
-{
-    FILE *f = NULL;
-    f = FIO_CreateFile(name);
-    if (!f)
-        return;
-    FIO_WriteFile(f, (uint32_t *)addr, size);
-    FIO_CloseFile(f);
-}
-
-#if 0 && defined(CONFIG_200D) && defined(CONFIG_MMU_REMAP)
-#include "sgi.h"
-#include "cpu.h"
-#include "patch_mmu.h"
-#include "mmu_utils.h"
-extern int uart_printf(const char *fmt, ...);
-extern int send_software_interrupt(uint32_t interrupt, uint32_t cpu_id);
-extern int apply_data_patch(struct mmu_config *, struct region_patch *);
-extern void change_mmu_tables(uint8_t *ttbr0, uint8_t *ttbr1, uint32_t cpu_id);
-
-static const unsigned char earl_grey_str[] = "Earl Grey, hot";
-
-#if CONFIG_FW_VERSION == 101 // ensure our hard-coded patch addresses are not broken
-                             // by a FW upgrade
-struct region_patch mmu_data_patches_debug[] =
-{
-    {
-        // replace "Dust Delete Data" with "Earl Grey, hot",
-        // as a low risk (non-code) test that MMU remapping works.
-        .patch_addr = 0xf00d84e7,
-        .orig_content = NULL,
-        .patch_content = earl_grey_str,
-        .size = sizeof(earl_grey_str),
-        .description = "Tea"
-    }
-};
-
-static void test_patch(void *unused)
-{
-    uint32_t cpu_id = get_cpu_id();
-    DryosDebugMsg(0, 15, "Post-patch, %d: 0x%x", cpu_id, *(int *)0xf00d84e7);
-}
-
-#endif // CONFIG_FW_VERSION == 101
-#endif // 200D && REMAP
-
-#if 0 && defined(CONFIG_200D)
-extern int uart_printf(const char *fmt, ...);
-void print_match(uint32_t addr)
-{
-    for (uint32_t offset = 0x0; offset < 0x40; offset += 0x10)
-    {
-        uart_printf("0x%08x: ", addr + offset);
-        for (uint32_t i = 0; i < 0x10; i += 4)
-        {
-            uart_printf("%02x %02x %02x %02x ",
-                        *(uint8_t *)(addr + offset + i),
-                        *(uint8_t *)(addr + offset + i + 1),
-                        *(uint8_t *)(addr + offset + i + 2),
-                        *(uint8_t *)(addr + offset + i + 3)
-                      );
-        }
-        uart_printf("\n");
-    }
-    uart_printf("\n");
-}
-
-void dump_match(uint32_t addr)
-{
-    FILE* f = FIO_CreateFileOrAppend("ML/LOGS/iso_hunt.log");
-    // CMOS ISO table is setup by a DMA read from f8910000,
-    // but the dst is a heap address and not reliably predictable.
-    // The DMA src addr is recorded in some linked-list struct, possibly
-    // property related.  That struct also holds the dst addr.
-
-    my_fprintf(f, "Orig addr: 0x%08x\n", addr);
-    addr = addr & 0xfffffff0;
-    for (uint32_t offset = 0x0; offset < 0x100; offset += 0x10)
-    {
-        my_fprintf(f, "0x%08x: ", addr + offset);
-        for (uint32_t i = 0; i < 0x10; i += 4)
-        {
-            my_fprintf(f, "%02x %02x %02x %02x ",
-                        *(uint8_t *)(addr + offset + i),
-                        *(uint8_t *)(addr + offset + i + 1),
-                        *(uint8_t *)(addr + offset + i + 2),
-                        *(uint8_t *)(addr + offset + i + 3)
-                      );
-        }
-        my_fprintf(f, "\n");
-    }
-    FIO_CloseFile(f);
-}
-
-static uint32_t ___get_photo_cmos_iso_start_200d(void)
-{
-    uint32_t addr = 0x3e0000;
-    uint32_t max_search_addr = 0xa00000;
-
-    uint32_t rom_copy_start = 0xe1980000;
-    uint32_t ram_copy_start = 0;
-
-    // search for DMA src addr, to find our dst addr
-    for (; addr < max_search_addr; addr += 4)
-    {
-        if (*(uint32_t *)addr == rom_copy_start)
-        {
-            // A bunch of checks to give us higher confidence
-            // we found the right value.  So far, none of these
-            // have been required; the first hit is the correct
-            // one.  But these are cheap checks, and should avoid
-            // ever finding a random match on the 32-bit DMA addr value.
-
-            uint32_t *probe = (uint32_t *)addr;
-            // we expect to find 2 copies of the DMA src addr nearby
-            if (probe[0] != probe[4])
-                continue;
-            if (probe[0] != probe[5])
-                continue;
-            DryosDebugMsg(0, 15, "Found DMA addr copies");
-
-//            ram_copy_start = probe[6] + 0x4538;
-            ram_copy_start = probe[6] + 0x4fb8;
-            // we expect this to be Uncacheable
-            if (ram_copy_start == (uint32_t)CACHEABLE(ram_copy_start))
-                continue;
-
-            // we expect to find the original ISO value
-            if (*(uint32_t *)ram_copy_start != 0x0b400000)
-                continue;
-
-            // passed all checks, stop search
-            DryosDebugMsg(0, 15, "Found ram_copy_start, 0x%08x: 0x%08x",
-                          &probe[6], ram_copy_start);
-            break;
-        }
-    }
-    if (*(uint32_t *)addr != rom_copy_start || addr >= max_search_addr)
-    {
-        DryosDebugMsg(0, 15, "Failed to find rom_copy_start!");
-        return 0; // failed to find target
-    }
-
-#if 1 // SJE FIXME remove this, it's debug code!
-    // dump the table to check contents in case we later throw isoless err()
-    FILE* f = FIO_CreateFile("ML/LOGS/iso_tabl.bin");
-    FIO_WriteFile(f, (uint32_t *)ram_copy_start, 0x2000);
-    FIO_CloseFile(f);
-#endif
-
-    return ram_copy_start;
-}
-#endif
-
-int yuv_dump_sec = 0;
 static void run_test()
 {
-    DryosDebugMsg(0, 15, "run_test fired");
+    msleep(2000);
 
-#if 0 && defined(CONFIG_200D)
-    #include "patch.h"
-
-    // Three candidate CMOS ISO tables, RAM addresses
-    // (not stable in theory but are for my cam, real code
-    // should search for these)
-    // 0x21f9dc0: +0x19c0, size 36, count 24
-    // 0x21fc938: +0x4538, size 112 / 0x70, count 24
-    // 0x21fd3b8: +0x4fb8, size 112 / 0x70, count 24
-
-    msleep(100);
-    uint32_t *p = NULL;
-    for (p = (uint32_t *)0x2000; p < (uint32_t *)0x2800000; p++)
-    {
-        if (p[0] == 0x0b400000
-            && p[1] == 0x0cc03333
-            && p[2] == 0x0d001f1f
-            && p[3] == 0x0d401f1f)
-        {
-            //DryosDebugMsg(0, 15, "Match: 0x%08x", p);
-            print_match((uint32_t)p);
-        }
-    }
-    //DryosDebugMsg(0, 15, " ==== Search finished ====", p);
-
-    for (p = (uint32_t *)0x2000; p < (uint32_t *)0x2800000; p++)
-    {
-        if (p[0] == 0x0b400000
-            && p[1] == 0x0cc03333
-            && p[2] == 0xffffffff
-            && p[3] == 0x03080201)
-        {
-            //DryosDebugMsg(0, 15, "Match: 0x%08x", p);
-            print_match((uint32_t)p);
-        }
-    }
-    //DryosDebugMsg(0, 15, " ==== Search finished ====", p);
-/*
-    uint32_t addr, size, count;
-    for (addr = 0x21f9dc0, size = 36, count = 24; count > 0; count--)
-    {
-        if ((*(uint32_t *)addr & 0xfff00000) == 0x0b400000)
-            patch_memory(addr, *(uint32_t *)addr, 0x0b444000, NULL);
-        addr += size;
-    }
-*/
-
-
-#endif
-
-#if 0 && defined(CONFIG_200D)
-    //___get_photo_cmos_iso_start_200d();
-    DryosDebugMsg(0, 15, "0x421fc938: 0x%08x", *(uint32_t *)0x421fc938);
-    DryosDebugMsg(0, 15, "0x21fc938:  0x%08x", *(uint32_t *)0x21fc938);
-
-/*
-    info_led_on();
-    // CMOS ISO table is setup by a DMA read from f8910000,
-    // but the dst is a heap address and not reliably predictable.
-    // The DMA src addr is recorded in some linked-list struct, possibly
-    // property related.  That struct also holds the dst addr.
-    uint32_t addr = 0x300000;
-    while (addr <  0x3000000)
-    {
-        if (*(uint32_t *)addr == 0x0b400000
-            && *(uint32_t *)(addr + 4) == 0x0cc03333)
-        {
-            DryosDebugMsg(0, 15, "Possible match: 0x%08x\n", addr);
-            dump_match(addr);
-        }
-        addr += 4;
-    }
-    info_led_off();
-*/
-#endif
-
-#if 0 && defined(CONFIG_550D)
-    // try to walk to the CMOS ISO tables, logging the steps along the way
-
-    info_led_on();
-    FILE* f = FIO_CreateFile("ML/LOGS/iso_hunt.log");
-    // CMOS ISO table is setup by a DMA read from f8910000,
-    // but the dst is a heap address and not reliably predictable.
-    // The DMA src addr is recorded in some linked-list struct, possibly
-    // property related.  That struct also holds the dst addr.
-    uint32_t addr = 0x3d0000;
-    while (*(uint32_t *)addr != 0xf8910000
-           && addr < 0x800000)
-    {
-        addr += 4;
-    }
-    if (*(uint32_t *)addr != 0xf8910000)
-        goto close;
-    my_fprintf(f, "Found f8910000: 0x%08x\n", addr);
-    my_fprintf(f, "+0x18: 0x%08x\n", *(uint32_t *)(addr + 0x18));
-
-close:
-    FIO_CloseFile(f);
-    info_led_off();
-#endif
-
-#if 0 && (defined(CONFIG_200D) || defined(CONFIG_850D))
-    // trigger an assert
-    extern void debug_assert(char *msg, char *file, int line);
-    debug_assert("LIFE == FAIR", "this file", 1);
-    // or the following will trigger an exception on MMU cams
-//    int crash_now_please = *(int *)0x0;
-//    DryosDebugMsg(0, 15, "not unused: 0x%x", crash_now_please);
-#endif
-
-#if 0
-    if (is_hooked)
-    {
-        DryosDebugMsg(0, 15, "last value seen: 0x%x", intercepted_val);
-    }
-    else
-    {
-        hook_memoryManager_AllocateMemory();
-    }
-    DryosDebugMsg(0, 15, "returned from hooking");
-#endif
-
-#if 0
-    static int dm_toggle = 1;
-    if (dm_toggle)
-    {
-        DryosDebugMsg(0, 15, "Logging less");
-//        dm_set_store_level(0x80, 0x17);
-        dm_set_print_level(0x0, 0x8);
-        dm_set_store_level(0x0, 0x8);
-        dm_set_print_level(0x80, 0x5);
-        dm_set_store_level(0x80, 0x5);
-        dm_toggle = 0;
-    }
-    else
-    {
-        DryosDebugMsg(0, 15, "Logging more");
-//        dm_set_store_level(0x80, 0x1); // re-enables SRM related logging
-        dm_set_print_level(0x0, 0x5);
-        dm_set_store_level(0x0, 0x5);
-        dm_set_print_level(0x80, 0x3);
-        dm_set_store_level(0x80, 0x3);
-        dm_toggle = 1;
-    }
-#endif
-
-}
-
-#ifdef FEATURE_BOOTFLAG_MENU
-static void bootflag_disable(void* priv, int delta)
-{
     console_show();
-    printf("Call DisableBootDisk()\n");
+    msleep(1000);
+    
+    /* let's see how much RAM we can get */
+    struct memSuite * suite = srm_malloc_suite(0);
+    struct memChunk * chunk = GetFirstChunkFromSuite(suite);
+    printf("hSuite %x (%dx%s)\n", suite, suite->num_chunks, format_memory_size(chunk->size));
+    
+    printf("You should not be able to take pictures,\n");
+    printf("but autofocus should work.\n");
 
-    call("DisableBootDisk");
+    info_led_on();
+    for (int i = 10; i >= 0; i--)
+    {
+        msleep(1000);
+        printf("%d...", i);
+    }
+    printf("\b\b\n");
+    info_led_off();
+    
+    srm_free_suite(suite);
+    msleep(1000);
 
-    printf("done.\n");
-}
+    printf("Now try taking some pictures during the test.\n");
+    
+    /* we must be able to allocate at least two 25MB buffers on top of what you can get from shoot_malloc */
+    /* 50D/500D have 27M, 5D3 has 40 */
+    for (int i = 0; i < 1000; i++)
+    {
+        void* buf1 = srm_malloc(25*1024*1024);
+        printf("srm_malloc(25M) => %x\n", buf1);
+        
+        void* buf2 = srm_malloc(25*1024*1024);
+        printf("srm_malloc(25M) => %x\n", buf2);
 
-static void bootflag_enable(void* priv, int delta)
-{
-  console_show();
-  printf("Call EnableBootDisk()\n");
+        /* we must be able to free them in any order, even if the backend doesn't allow that */
+        if (rand()%2)
+        {
+            free(buf1);
+            free(buf2);
+        }
+        else
+        {
+            free(buf2);
+            free(buf1);
+        }
 
-  call("EnableBootDisk");
+        if (i == 0)
+        {
+            /* delay the first iteration, so you can see what's going on */
+            /* also save a screenshot */
+            msleep(5000);
+            take_screenshot(0, SCREENSHOT_BMP);
+        }
+        
+        if (!buf1 || !buf2)
+        {
+            /* allocation failed? wait before retrying */
+            msleep(1000);
+        }
+    }
+    
+    return;
+        
+    /* todo: cleanup the following tests and move them in the mem_chk module */
+    
+    /* allocate up to 50000 small blocks of RAM, 32K each */
+    int N = 50000;
+    int blocksize = 32*1024;
+    void** ptr = malloc(N * sizeof(ptr[0]));
+    if (ptr)
+    {
+        for (int i = 0; i < N; i++)
+        {
+            ptr[i] = 0;
+        }
 
-  printf("done.\n");
-}
+        for (int i = 0; i < N; i++)
+        {
+            ptr[i] = malloc(blocksize);
+            bmp_printf(FONT_MONO_20, 0, 0, "alloc %d %8x (total %s)", i, ptr[i], format_memory_size(i * blocksize));
+            if (ptr[i]) memset(ptr[i], rand(), blocksize);
+            else break;
+        }
+        
+        for (int i = 0; i < N; i++)
+        {
+            if (ptr[i])
+            {
+                bmp_printf(FONT_MONO_20, 0, 20, "free %x   ", ptr[i]);
+                free(ptr[i]);
+            }
+        }
+    }
+    free(ptr);
+    return;
+    
+    /* check for memory leaks */
+    for (int i = 0; i < 1000; i++)
+    {
+        printf("%d/1000\n", i);
+        
+        /* with this large size, the backend will use fio_malloc, which returns uncacheable pointers */
+        void* p = malloc(16*1024*1024 + 64);
+        
+        if (!p)
+        {
+            printf("malloc err\n");
+            continue;
+        }
+        
+        /* however, user code should not care about this; we have requested a plain old cacheable pointer; did we get one? */
+        ASSERT(p == CACHEABLE(p));
+        
+        /* do something with our memory */
+        memset(p, 1234, 1234);
+        msleep(20);
+        
+        /* done, now free it */
+        /* the backend should put back the uncacheable flag (if handled incorrectly, there may be memory leaks) */
+        free(p);
+        msleep(20);
+    }
+    return;
+
+   //~ bfnt_test();
+#ifdef FEATURE_SHOW_SIGNATURE
+    console_show();
+    printf("FW Signature: 0x%08x", compute_signature((int*)SIG_START, SIG_LEN));
+    msleep(1000);
+    return;
 #endif
 
+    #ifdef CONFIG_EDMAC_MEMCPY
+    msleep(2000);
+
+    uint8_t* real = bmp_vram_real();
+    uint8_t* idle = bmp_vram_idle();
+    int xPos = 0;
+    int xOff = 2;
+    int yPos = 0;
+
+    edmac_memcpy_res_lock();
+    edmac_copy_rectangle_adv(BMP_VRAM_START(idle), BMP_VRAM_START(real), 960, 120, 50, 960, 120, 50, 720, 440);
+    while(true)
+    {
+        edmac_copy_rectangle_adv(BMP_VRAM_START(real), BMP_VRAM_START(idle), 960, 120, 50, 960, 120+xPos, 50+yPos, 720-xPos, 440-yPos);
+        xPos += xOff;
+
+        if(xPos >= 100 || xPos <= -100)
+        {
+            xOff *= -1;
+        }
+    }
+    edmac_memcpy_res_unlock();
+    return;
+    #endif
+
+    call("lv_save_raw", 1);
+    call("aewb_enableaewb", 0);
+    return;
+
+#if 0
+    void exmem_test();
+
+    exmem_test();
+    return;
+#endif
+
+#ifdef CONFIG_MODULES
+    console_show();
+
+    printf("Loading modules...\n");
+    msleep(1000);
+    module_load_all();
+    return;
+
+    printf("\n");
+
+    printf("Testing TCC executable...\n");
+    printf(" [i] this may take some time\n");
+    msleep(1000);
+
+    for(int try = 0; try < 100; try++)
+    {
+        void *module = NULL;
+        uint32_t ret = 0;
+
+        module = module_load(MODULE_PATH"libtcc.mex");
+        if(module)
+        {
+            ret = module_exec(module, "tcc_new", 0);
+            if(!(ret & 0x40000000))
+            {
+                printf("tcc_new() returned: 0x%08X\n", ret);
+            }
+            else
+            {
+                module_exec(module, "tcc_delete", 1, ret);
+            }
+            module_unload(module);
+        }
+        else
+        {
+            printf(" [E] load failed\n");
+        }
+    }
+
+    printf("Done!\n");
+#endif
+}
+#endif
 static void unmount_sd_card()
 {
     extern void FSUunMountDevice(int drive);
@@ -964,8 +681,8 @@ static void save_crash_log()
     {
         my_fprintf(f, "%s\n", get_assert_msg());
         my_fprintf(f,
-            "Magic Lantern version: %s\n"
-            "Git commit: %s\n"
+            "Magic Lantern version : %s\n"
+            "Mercurial changeset   : %s\n"
             "Built on %s by %s.\n",
             build_version,
             build_id,
@@ -1047,47 +764,26 @@ debug_loop_task( void* unused ) // screenshot, draw_prop
         #ifdef FEATURE_SCREENSHOT
         if (screenshot_sec)
         {
+            static int valid = 0;
+            if (screenshot_sec == 1 && valid)
+            {
+            menu_set_str_value_from_script("Movie", "raw video", "ON", 1);
+            valid = 0;
+            msleep(100);
+            }
+            if (screenshot_sec == 3 && raw_lv_is_enabled())
+            {
+                valid = 1;
+                menu_set_str_value_from_script("Movie", "raw video", "OFF", 1);
+                msleep(100);
+            }
+            
             info_led_blink(1, 20, 1000-20-200);
             screenshot_sec--;
             if (!screenshot_sec)
                 take_screenshot(SCREENSHOT_FILENAME_AUTO, SCREENSHOT_BMP | SCREENSHOT_YUV);
         }
         #endif
-
-#if defined(CONFIG_200D) || defined(CONFIG_850D)
-//#ifdef CONFIG_850D
-        // SJE FIXME hack code to dump probably YUV buffers
-        // (areas listed in smemShowFix with YUV in name)
-        if (yuv_dump_sec)
-        {
-            info_led_blink(1, 20, 1000 - 20 - 200);
-            yuv_dump_sec--;
-            if (!yuv_dump_sec)
-            {
-                char path[100];
-
-                // addr, size
-                uint32_t regions[] = {
-                #ifdef CONFIG_200D
-                    *(DISP_VRAM_STRUCT_PTR + (0x70 / 4)), 0x00405600,
-                    *(DISP_VRAM_STRUCT_PTR + (0x74 / 4)), 0x00405600,
-                    *(DISP_VRAM_STRUCT_PTR + (0x78 / 4)), 0x00405600,
-                    //0x5f3efe00, 0x00405600, // IMG_VRAM1
-                    //0x5f7f5400, 0x00405600, // IMG_VRAM2
-                    //0x5fbfaa00, 0x00405600, // IMG_VRAM3
-                #elif defined(CONFIG_850D)
-                    0x9F420000, 0x003F4800, // IMG_VRAM1
-                #endif
-                };
-
-                for (uint32_t i = 0; i < sizeof(regions) / 4; i += 2)
-                {
-                    snprintf(path, sizeof(path), "%x.yuv", regions[i]);
-                    mem_to_file(path, regions[i], regions[i + 1]);
-                }
-            }
-        }
-#endif
 
         #ifdef CONFIG_RESTORE_AFTER_FORMAT
         if (MENU_MODE)
@@ -1128,18 +824,14 @@ static MENU_UPDATE_FUNC(image_buf_display)
 }
 #endif
 
+#ifdef FEATURE_SHOW_SHUTTER_COUNT
 static MENU_UPDATE_FUNC(shuttercount_display)
 {
-#ifdef CONFIG_DIGIC_VIII // Digic 8 and up
-    // just shutter count value
-    MENU_SET_VALUE("%d", shutter_count);
-#else
     MENU_SET_VALUE(
         "%dK = %d+%d",
         (shutter_count_plus_lv_actuations + 500) / 1000,
         shutter_count, shutter_count_plus_lv_actuations - shutter_count
     );
-#endif
 
     if (shutter_count_plus_lv_actuations > CANON_SHUTTER_RATING*2)
     {
@@ -1158,28 +850,27 @@ static MENU_UPDATE_FUNC(shuttercount_display)
         MENU_SET_WARNING(MENU_WARN_INFO, "You may get around %d.", CANON_SHUTTER_RATING);
     }
 }
+static MENU_UPDATE_FUNC(serialnumber_display)
+{
+//	printf("LEN: %s \n", serialnumber_display);
+	if(serial_number_len == 8)
+    {
 
-#ifdef CONFIG_DIGIC_VIII // Digic 8 and up
-static MENU_UPDATE_FUNC(totalshutter_display)
-{
-    MENU_SET_VALUE("%d", shutter_count);
-    MENU_SET_WARNING(
-        MENU_WARN_ADVICE,
-        "May drift a bit - check after restart for accurate values.");
-}
-static MENU_UPDATE_FUNC(totalmirror_display)
-{
-    MENU_SET_VALUE("%d", total_mirror_count);
-    MENU_SET_WARNING(
-        MENU_WARN_ADVICE,
-        "May drift a bit - check after restart for accurate values.");
-}
-static MENU_UPDATE_FUNC(totalshoot_display)
-{
-    MENU_SET_VALUE("%d", total_shots_count);
-    MENU_SET_WARNING(
-        MENU_WARN_ADVICE,
-        "May drift a bit - check after restart for accurate values.");
+        snprintf(camera_serial, sizeof(camera_serial), "%X%08X", (uint32_t)(*((uint64_t*)serial_number_buf) & 0xFFFFFFFF), (uint32_t) (*((uint64_t*)serial_number_buf) >> 32));
+    }
+    else if(serial_number_len == 4)
+    {
+        snprintf(camera_serial, sizeof(camera_serial), "%08X", *((uint32_t*)serial_number_buf));
+    }
+    else
+    {
+        snprintf(camera_serial, sizeof(camera_serial), "(unknown len %d)", serial_number_len);
+    }
+
+	MENU_SET_VALUE(
+        "%s", camera_serial
+    );
+
 }
 #endif
 
@@ -1421,13 +1112,7 @@ static struct menu_entry debug_menus[] = {
         .name        = "Dump ROM and RAM",
         .priv        = dump_rom_task,
         .select      = run_in_separate_task,
-    #if defined(CONFIG_DIGIC_45)
         .help = "ROM0.BIN:F0000000, ROM1.BIN:F8000000, RAM4.BIN"
-    #elif defined(CONFIG_DIGIC_6)
-        .help = "ROM0.BIN:      NA, ROM1.BIN:FE000000, RAM4.BIN"
-    #elif defined(CONFIG_DIGIC_78)
-        .help = "ROM0.BIN:E0000000, ROM1.BIN:F0000000, RAM4.BIN"
-    #endif
     },
     {
         .name        = "Dump image buffers",
@@ -1452,26 +1137,6 @@ static struct menu_entry debug_menus[] = {
         .help = "The camera may turn into a 1DX or it may explode."
     },
 #endif
-#ifdef FEATURE_BOOTFLAG_MENU
-    {
-        .name       = "Bootflag settings",
-        .select     = menu_open_submenu,
-        .help       = "Change camera bootflag status",
-        .children =  (struct menu_entry[]) {
-            {
-                .name   = "Disable bootflag",
-                .select = bootflag_disable,
-                .help   = "Calls DisableBootDisk EvProc"
-            },
-            {
-                .name   = "Enable bootflag",
-                .select = bootflag_enable,
-                .help   = "Calls EnableBootDisk EvProc"
-            },
-            MENU_EOL,
-        },
-    },
-#endif
 #ifdef CONFIG_DEBUG_INTERCEPT
     {
         .name        = "DM Log",
@@ -1479,12 +1144,13 @@ static struct menu_entry debug_menus[] = {
         .select      = run_in_separate_task,
         .help = "Log DebugMessages"
     },
-    {
+/*    {
         .name        = "TryPostEvent Log",
         .priv        = j_tp_intercept,
         .select      = run_in_separate_task,
         .help = "Log TryPostEvents"
     },
+     * */
 #endif
 #ifdef FEATURE_SHOW_TASKS
     {
@@ -1548,39 +1214,18 @@ static struct menu_entry debug_menus[] = {
     {
         .name = "Shutter Count",
         .update = shuttercount_display,
-        //.essential = FOR_MOVIE | FOR_PHOTO,
-        #ifdef CONFIG_DIGIC_VIII // Digic 8 and up
-        .help = "Number of shutter actions. Open submenu to learn more.",
-        .select = menu_open_submenu,
-        .submenu_width = 710,
-        .children =  (struct menu_entry[]) {
-            {
-                .name = "Total Shutter",
-                .update = totalshutter_display,
-                .icon_type = IT_ALWAYS_ON,
-                .help = "Number of mechanical shutter actions (incl. sensor cleaning)",
-            },
-            {
-                .name = "Total Mirror",
-                .update = totalmirror_display,
-                .icon_type = IT_ALWAYS_ON,
-                .help = "Number of mirror move actions (DSLR, 0 on mirrorless)",
-            },
-            {
-                .name = "Total Shots",
-                .update = totalshoot_display,
-                .icon_type = IT_ALWAYS_ON,
-                .help = "Number of photos made. Incl. silent (electronic) shots",
-            },
-            MENU_EOL,
-        },
-        #else // no submenu, classic style
-        .help = "Number of pics taken + number of LiveView actuations",
         .icon_type = IT_ALWAYS_ON,
-        #endif
+        .help = "Number of pics taken + number of LiveView actuations",
+        //.essential = FOR_MOVIE | FOR_PHOTO,
+    },
+    {
+        .name = "Serial Number:",
+        .update = serialnumber_display,
+        .icon_type = IT_ALWAYS_ON,
+        .help = "Show Serial Number",
+        //.essential = FOR_MOVIE | FOR_PHOTO,
     },
 #endif
-
 #ifdef FEATURE_SHOW_CMOS_TEMPERATURE
     {
         .name = "Internal Temp",
@@ -2343,33 +1988,12 @@ int handle_buttons_being_held(struct event * event)
     return 1;
 }
 
-void turn_on_display(void)
-{
-    #if defined(CONFIG_DIGIC_45)
-    call("TurnOnDisplay");
-    #elif defined(CONFIG_NO_DISPLAY_CALLS)
-    extern void _turn_on_display(void);
-    _turn_on_display();
-    #endif
-}
-
-void turn_off_display(void)
-{
-    #if defined(CONFIG_DIGIC_45)
-    call("TurnOffDisplay");
-    #elif defined(CONFIG_NO_DISPLAY_CALLS)
-    extern void _turn_off_display(void);
-    _turn_off_display();
-    #endif
-}
-
 // those functions seem not to be thread safe
 // calling them from gui_main_task seems to sync them with other Canon calls properly
-int handle_tricky_canon_calls(struct event *event)
+int handle_tricky_canon_calls(struct event * event)
 {
     // fake ML events are always negative numbers
-    if (event->param >= 0)
-        return 1;
+    if (event->param >= 0) return 1;
 
     //~ static int k; k++;
     //~ bmp_printf(FONT_LARGE, 50, 50, "[%d] tricky call: %d ", k, event->param); msleep(1000);
@@ -2382,16 +2006,10 @@ int handle_tricky_canon_calls(struct event *event)
             break;
         #endif
         case MLEV_TURN_ON_DISPLAY:
-            if (!DISPLAY_IS_ON)
-            {
-                turn_on_display();
-            }
+            if (!DISPLAY_IS_ON) call("TurnOnDisplay");
             break;
         case MLEV_TURN_OFF_DISPLAY:
-            if (DISPLAY_IS_ON)
-            {
-                turn_off_display();
-            }
+            if (DISPLAY_IS_ON) call("TurnOffDisplay");
             break;
         /*case MLEV_ChangeHDMIOutputSizeToVGA:
             ChangeHDMIOutputSizeToVGA();

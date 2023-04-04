@@ -102,6 +102,7 @@
 #endif
 
 /** Movie menu **/
+//    #define FEATURE_RAW_VIDEO_ONLY
     #define FEATURE_NITRATE
     //~ #define FEATURE_NITRATE_WAV_RECORD // not user-proof at all
     //~ #define FEATURE_VIDEO_HACKS // for experts only
@@ -131,9 +132,9 @@
     //~ #define FEATURE_HDR_EXTENDED // for experts only
 #endif
 
-    #define FEATURE_IMAGE_EFFECTS
+    // #define FEATURE_IMAGE_EFFECTS
 
-    #define FEATURE_VIGNETTING_CORRECTION
+    // #define FEATURE_VIGNETTING_CORRECTION
 
 #ifdef CONFIG_FRAME_SHUTTER_OVERRIDE
     #define FEATURE_SHUTTER_FINE_TUNING

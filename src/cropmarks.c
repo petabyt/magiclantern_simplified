@@ -168,7 +168,6 @@ static MENU_UPDATE_FUNC(crop_display_submenu)
     MENU_SET_ICON(MNI_DICE, (num_cropmarks<<16) + index);
 }
 
-#ifdef FEATURE_CROPMARKS
 static struct menu_entry cropmarks_menu[] = {
     {
         .name = "Cropmarks",
@@ -205,7 +204,6 @@ static struct menu_entry cropmarks_menu[] = {
         },
     },
 };
-#endif
 
 static void cropmark_draw_from_cache()
 {
@@ -571,9 +569,9 @@ static void FAST default_movie_cropmarks()
 void set_movie_cropmarks(int x, int y, int w, int h)
 {
     x = COERCE(x, os.x0+1, os.x_max-1);
-    y = COERCE(y, os.y0+1, os.y_max-1);
-    w = COERCE(w, 0, os.x_max-1 - x);
-    h = COERCE(h, 0, os.y_max-1 - y);
+    y = COERCE(y, os.y0+2, os.y_max-2);
+    w = COERCE(w, 0, os.x_max-2 - x);
+    h = COERCE(h, 0, os.y_max-4 - y);
     cropmarks_x = (x << 16) | (x + w);
     cropmarks_y = (y << 16) | (y + h);
 }

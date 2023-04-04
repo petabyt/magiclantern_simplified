@@ -12,14 +12,13 @@
 #include "tasks.h"
 #include "backtrace.h"
 
-#define qemu_log_mask(level, fmt, ...) { qprintf(fmt, ## __VA_ARGS__); }
+#define qemu_log_mask(...)
 #define qemu_loglevel_mask(x) 0
 #define EOSState void
-#define scnprintf snprintf /* FIXME */
 
-static const char * eos_get_current_task_name(EOSState *s)
+static char * eos_get_current_task_name(EOSState *s)
 {
-    return get_current_task_name();
+    return current_task->name;
 }
 
 static int eos_get_current_task_stack(EOSState *s, uint32_t * top, uint32_t * bottom)
@@ -38,8 +37,6 @@ static int eos_get_current_task_stack(EOSState *s, uint32_t * top, uint32_t * bo
 #include <stdint.h>
 
 #include "qemu/osdep.h"
-#include "qemu/log.h"
-#include "disas/disas.h"
 #include "qapi/error.h"
 #include "cpu.h"
 
@@ -260,7 +257,7 @@ static int sim_instr(EOSState *s,
     if (qemu_loglevel_mask(BKT_LOG_DISAS))
     {
         CPUARMState *env = &(CURRENT_CPU->env);
-        target_disas(stderr, CPU(env_archcpu(env)), pc, 4);
+        target_disas(stderr, CPU(arm_env_get_cpu(env)), pc, 4, 0);
     }
 #endif
 
@@ -530,13 +527,6 @@ static uint32_t find_caller(EOSState *s, uint32_t pc, uint32_t *psp)
     uint32_t sp = *psp;
     int iter = 0;
 
-    // FIXME SJE, so much FIXME.
-    // Currently the backtrace handling causes an exception...
-    #ifdef CONFIG_DIGIC_678
-    //uart_printf("find_caller, pc: 0x%x, sp: 0x%x\n", pc, *psp);
-    return 0;
-    #endif
-
     /* we need to find one code path that returns from the function */
     /* first we try the deterministic path (no conditional branches taken) */
     /* if that doesn't work, we'll try taking them randomly */
@@ -774,14 +764,14 @@ void eos_backtrace_rebuild(EOSState *s, char * buf, int size)
 
     if (buf)
     {
-        int len = scnprintf(buf, size,
+        int len = snprintf(buf, size,
             "%s stack: %x [%x-%x]\n",
             eos_get_current_task_name(s),
             sps[0], stack_top, stack_bot
         );
         while (--i >= 0)
         {
-            len += scnprintf(
+            len += snprintf(
                 buf + len, size - len,
                 "%s @ %x:%x\n",
                 called_func(lrs[i] - 4), lrs[i] - 4, sps[i]
@@ -842,7 +832,7 @@ void eos_bkt_log_exec(EOSState *s)
             {
                 fprintf(stderr, "SP mismatch: expected %x->%x, got %x (=> %x at %x,%x)\n", prev_sp, sp, ssp, ret, prev_pc, pc);
                 CPUARMState *env = &(CURRENT_CPU->env);
-                target_disas(stderr, CPU(env_archcpu(env)), prev_pc, 4);
+                target_disas(stderr, CPU(arm_env_get_cpu(env)), prev_pc, 4, 0);
                 assert(0);
             }
 
@@ -862,7 +852,7 @@ void eos_bkt_log_exec(EOSState *s)
                 }
                 fprintf(stderr, "LR mismatch: expected %x->%x, got %x (=> %x at %x,%x)\n", prev_lr, lr, slr, ret, prev_pc, pc);
                 CPUARMState *env = &(CURRENT_CPU->env);
-                target_disas(stderr, CPU(env_archcpu(env)), prev_pc, 4);
+                target_disas(stderr, CPU(arm_env_get_cpu(env)), prev_pc, 4, 0);
                 //assert(0);
             }
         }

@@ -37,9 +37,6 @@
 #define PROP_TFT_STATUS         0x80030015
 #define PROP_LENS_NAME          0x80030021
 #define PROP_LENS_SOMETHING     0x80030022
-//duplicate of PROP_LENS_SOMETHING, name found in R rom.
-//Not replaced as it was already exposed in LUA api
-#define PROP_LENS_ALL_NAME      0x80030022
 
 //~ 5dc doesn't have a PROP_LENS.
 #ifdef CONFIG_5DC
@@ -47,9 +44,6 @@
 #else
 #define PROP_LENS               0x80030011 // info about lens? flags?
 #endif
-
-#define PROP_LENS_STATIC_DATA   0x8003009a
-#define PROP_LENS_DYNAMIC_DATA  0x80020037
 
 #define PROP_HDMI_CHANGE        0x8003002c // 1 if HDMI display connected
 #define PROP_HDMI_CHANGE_CODE   0x8003002e // edidc?
@@ -65,8 +59,6 @@
 #define PROP_LIVE_VIEW_FACE_AF  0x0205000A
 #define PROP_LV_LOCK            0x80050021
 #define PROP_LV_ACTION          0x80050022 // 0 == LV_START, 1 == LV_STOP
-#define PROP_LV_LCD_OVERLAY_ID  0x02050039 // Updated with LvInfoToggle index while in LCD
-#define PROP_LV_EVF_OVERLAY_ID  0x0205003A // Updated with LvInfoToggle index while in EVF
 
 /** These are guesses */
 #define PROP_LCD_POSITION       0x80040020 // 0 = like on non-flippable, 1 = backwards, 2 = flipped outside
@@ -74,21 +66,12 @@
 #define PROP_MVR_MOVW_START0    0x80000020 // not sure?
 #define PROP_MVR_MOVW_START1    0x80000021
 #define PROP_AF_MODE            0x80000004
-#define PROP_LVAF_MODE          0x80000050 // same values as PROP_AF_MODE
 #define AF_MODE_ONE_SHOT        0
 #define AF_MODE_MANUAL_FOCUS    3
 #define AF_MODE_AI_FOCUS        202        // TODO: seems to be model-specific or bit operation
 #define AF_MODE_AI_SERVO        101        // TODO: seems to be model-specific or bit operation
 #define PROP_MVR_REC            0x80030002
 #define PROP_LV_LENS            0x80050000
-/* As names_are_hard found, PROP_LV_LENS_D67 exists on D6/7 models.
- * On D6/D7 PROP_LV_LENS_D67 is getting updated in LV. However there's no known
- * method to force it update outside LV.
- * But there's EvProc called msub.lensdata which result in PROP_LV_LENS update,
- * however works only outside (!) LV.
- * Thus for Digic 6 and 7 we need to use both properties.
- */
-#define PROP_LV_LENS_D67        0x8008003c
 #define PROP_LV_0004            0x80050004
 #define PROP_LV_LENS_STABILIZE  0x80050005 // 0 = off, e0000 = on
 #define PROP_LV_MANIPULATION    0x80050006
@@ -96,7 +79,7 @@
 #define PROP_LV_FOCUS           0x80050001 // only works in liveview mode; LVCAF_LensDriveStart
 #define PROP_LV_FOCUS_DONE      0x80050002 // output when focus motor is done?
 #define PROP_LV_FOCUS_STOP      0x80050003 // LVCAF_LensDriveStop
-#define PROP_LV_FOCUS_BAD       0x80050029 // true if camera couldn't focus?
+#define PROP_LV_AF_RESULT       0x80050029 // 0 = OK, 1 = couldn't focus; triggered at the end of AF operation
 #define PROP_LV_FOCUS_STATE     0x80050009 // 1 OK, 101 bad, 201 not done?
 #define PROP_LV_FOCUS_STATUS    0x80050023 // 1 = idle, 3 = focusing in LiveView
 #define PROP_LV_FOCUS_CMD       0x80050027 // 3002 = full speed, 4/5 = slow, 6 = fine tune?
@@ -176,7 +159,6 @@
 #define PROP_DISPSENSOR_CTRL    0x80020010      // 1 == show results?
 #define PROP_LV_OUTPUT_DEVICE   0x80050011      // 1 == LCD?
 #define PROP_HOUTPUT_TYPE       0x80030030      // 0 = no info displayed in LV, 1 = info displayed (this is toggled with DISP)
-#define PROP_LV_OUTPUT_TYPE     0x80030030      // Real name of HOUTPUT_TYPE, as seen on D6+. Old name left for LUA compatibility.
 #define PROP_MIRROR_DOWN        0x8005001C
 #define PROP_MYMENU_LISTING     0x80040009
 
@@ -191,7 +173,7 @@
 #define PROP_DEFAULT_BRACKET    0x8002000A
 #define PROP_PARTIAL_SETTING    0x8002000B
 #define PROP_EMPOWER_OFF        0x80030007      // 1 == prohibit, 2 == permit
-#define PROP_LVAF_550D          0x8004001d      // 0 = shutter killer, 1 = live mode, 2 = face detect; introduced by a1ex on 550D branch
+#define PROP_LVAF_MODE      0x8004001d // 0 = shutter killer, 1 = live mode, 2 = face detect
 
 #define PROP_ACTIVE_SWEEP_STATUS 0x8002000C     // 1 == cleaning sensor?
 
@@ -318,10 +300,8 @@
 #define ALO_HIGH 2
 #define ALO_OFF 3
 
-// was guarded for 5D3 / 6D, but R series seem to use it too.
-#define PROP_HTP 0x8000004a
-
 #if defined(CONFIG_5D3)
+#define PROP_HTP 0x8000004a
 #define PROP_MULTIPLE_EXPOSURE 0x0202000c
 #define PROP_MLU 0x80000047
 #endif
@@ -340,6 +320,7 @@
 
 #ifdef CONFIG_6D //May work for others.
 #define PROP_HI_ISO_NR 0x80000049 //Len 4, 4 is multishot
+#define PROP_HTP 0x8000004a
 #define PROP_MULTIPLE_EXPOSURE 0x0202000c
 #define PROP_MULTIPLE_EXPOSURE_SETTING 0x8000003F
 #define PROP_MLU 0x80000047
@@ -451,6 +432,9 @@
     #define PROP_CLUSTER_SIZE_C      0x02010008
     #define PROP_FREE_SPACE_C        0x0201000b
     #define PROP_CARD_RECORD_C       0x8003000d
+
+    #define PROP_FILE_NUMBERING_MODE        0x02040001
+    #define PROP_NUMBER_OF_CONTINUOUS_MODE  0x02040008
 #endif
 
 #define PROP_USER_FILE_PREFIX  0x02050004
@@ -505,30 +489,20 @@
 #define PROP_ICU_AUTO_POWEROFF  0x80030024
 #define PROP_AUTO_POWEROFF_TIME 0x80000024
 #define PROP_TERMINATE_SHUT_REQ 0x80010001
+#define PROP_ABORT              0x80010002 // when opening the battery door
 #define PROP_REBOOT             0x80010003 // used by firmware update code
-
-#define PROP_SHUTDOWN_REASON    0x8002005b
-/* EOS R won't receive 0 on PROP_TERMINATE_SHUT_REQ, hovever it will change
-   PROP_SHUTDOWN_REASON to non-zero value.
-
-   Shutdown code is similar on M50, RP. R6 also mentions this property in CBRs.
-
-   kitor TODO: Is it true for all types of shutdown? Needs testing.
-   Value of args[0] from R:
-   0 - after boot
-   2 - normal shutdown (power switch)
-   4 - card door open
-   8 - battery door open
-   */
 
 #define PROP_DIGITAL_ZOOM_RATIO 0x8005002f
 
 #define PROP_INFO_BUTTON_FUNCTION 0x02070006
 
-#define PROP_CONTINUOUS_AF_MODE 0x80000042
-#define PROP_CONTINUOUS_AF_VALID 0x80000043 //also toggles servo
+#define PROP_LIVE_VIEW_AF_SYSTEM        0x8004001D // 0 = quick AF, 1 = live mode, 2 = face detect, 3 = multi
+#define PROP_CONTINUOUS_AF              0x80040040 // bool, new models only, photo mode only
+#define PROP_MOVIE_SERVO_AF             0x80000042 // PROP_CONTINUOUS_AF_MODE, bool, new models only
+#define PROP_MOVIE_SERVO_AF_VALID       0x80000043 // PROP_CONTINUOUS_AF_VALID, to MPU only?
+#define PROP_SHUTTER_AF_DURING_RECORD   0x8000003C // PROP_MOVIE_REC_AF
+
 #define PROP_REGISTRATION_DATA_UPDATE_FUNC 0x80000044 // custom slave cBr?
-#define PROP_MOVIE_REC_AF 0x8000003C
 
 // #define PROP_AF_CURRENT_AISERVO_STYLE 0x8004004B
 
@@ -543,22 +517,6 @@
 
 //~ #define PROP_CARD2_CLUSTER_SIZE 0x2010007
 #define PROP_SHUTTER_COUNTER 0x80030029
-
-/* PROP_MECHA_COUNTER holds two values: TotalShutter and TotalMirror
- * PROP_RELEASE_COUNTER holds one value: TotalShoot
- *
- * TotalShutter increases on shutter actuations - mecha shoots and manually
- * started sensor cleaning (by 3). On R5/R6 (but not R ?!) it also increases
- * by 1 on each turn on/off (which closes shutter on those models)
- *
- * TotalMirror is referenced only on DSLRs (but available with value of 0 on
- * mirrorless) and it self explaining.
- *
- * TotalShoot is "total pictures made". Increases with both mecha shoots and
- * builtin silent pictures.
- */
-#define PROP_MECHA_COUNTER    0x12000001
-#define PROP_RELEASE_COUNTER  0x12000003
 
 #define PROP_AFPOINT 0x8000000A // len=70x8003004F
 
@@ -681,9 +639,6 @@ void _prop_handler_##id( \
         unsigned                len \
 ) \
 
-// Allow calling the underlying handler function, can be useful
-// if two properties use the same handling logic, one can call the other.
-#define PROP_HANDLER_CALL(id) _prop_handler_##id(id, token, buf, len)
 
 #define PROP_INT(id,name) \
 volatile uint32_t name; \

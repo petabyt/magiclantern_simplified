@@ -109,7 +109,7 @@ int module_translate_key(int key, int dest);
 
 
 /* update major if older modules will *not* be compatible */
-#define MODULE_MAJOR 8
+#define MODULE_MAJOR 7
 /* update minor if older modules will be compatible, but newer module will not run on older magic lantern versions */
 #define MODULE_MINOR 0
 /* update patch if nothing regarding to compatibility changes */
@@ -184,6 +184,7 @@ typedef struct
     int valid;
     int enabled;
     int error;
+    int is_core;
 } module_entry_t;
 
 
@@ -245,7 +246,7 @@ typedef struct
                                                                     .property        = id, \
                                                                     .property_length = 0, \
                                                                 }; \
-                                                                void prefix##modname##_##id( \
+                                                                void REQUIRES(PropMgrTask) prefix##modname##_##id( \
                                                                         unsigned int property, \
                                                                         void *       token, \
                                                                         uint32_t *   buf, \
@@ -337,9 +338,9 @@ module_symbol_##NAME = { \
 
 /* for camera-specific tricks in modules */
 /* e.g. if (is_camera("5D3", "1.2.3")) { adtg_write_addr = 0x1234 } */
+/* also if (is_camera("DIGIC", "5")) { ... } */
 /* see propvalues.c */
-extern int is_camera(const char *model, const char *version);
-extern int get_digic_version(void);
+extern int is_camera(const char * model, const char * version);
 
 #ifdef MODULE
 #include "module_strings.h"

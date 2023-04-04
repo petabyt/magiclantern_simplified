@@ -17,29 +17,21 @@
 #define SIG_7D_203   0x50163E93 // from FF010000
 #define SIG_7D_MASTER_203 0x640BF4D1 // from FF010000
 #define SIG_1100D_105 0x46de7624 // from FF010000
+#define SIG_1200D_102 0xba19c526 // from FF0C0000
+//#define SIG_1300D_110 0xcd1249b3 // from FE0C0000 (atypical)
+#define SIG_1300D_110 0x3d8461b5 // from FE0C0000 (atypical)
+#define SIG_1300D_120 0x378b58db // from FE0C0000 (atypical)
+//#define SIG_1300D_110 0x37874414 // from FE0C0000 (atypical)
+#define SIG_2000D_110 0x70ca4ca6 // from FE0C0000 (atypical)
+
 #define SIG_6D_116   0x11cb1ed2 // from FF0C0000
-#define SIG_6D2_105  0x0c042362 // from E0040000
 #define SIG_5D3_113  0x2e2f65f5 // from FF0C0000
-#define SIG_5D3_123  0x672EEACE // from FF0C0000
 #define SIG_EOSM_202 0x2D7c6dcf // from FF0C0000
 #define SIG_650D_104 0x4B7FC4D0 // from FF0C0000
-#define SIG_700D_115 0x4c2d9f68 // from FF0C0000
+#define SIG_700D_114 0x4b35ce13 // from FF0C0000
 #define SIG_100D_101 0x3b82b55e // from FF0C0000
 #define SIG_200D_101 0xf72c729a // from E0040000
-#define SIG_M50_102  0x3b70901c // from E0040000
-#define SIG_M50_110  0x05EDBC80 // from E0040000
-#define SIG_R_180    0x1474d0f5 // from E0040000
-#define SIG_RP_160   0xECDDA78C // from E0040000
-#define SIG_5D4_112  0xf3316d96 // from FE0A0000
-#define SIG_5D4_133  0x40b85a84 // from FE0A0000
-#define SIG_5DS_111  0x6f867e6a // from FE0A0000
-#define SIG_5DSR_112 0xc60c4679 // from FE0A0000
-#define SIG_7D2_104  0x9c68409c // from FE0A0000
-#define SIG_80D_102  0x74d93d11 // from FE0A0000
-#define SIG_77D_102  0x6dd89c83 // from e0040000
-#define SIG_750D_110 0xf005931a // from FC0A0000
-#define SIG_850D_100 0xad55d877 // from e0040000
-#define SIG_SX740_102 0x53535fe8 // from e0040000
+#define SIG_M50_101  0x80bd9b4b // from E0040000
 
 static uint32_t compute_signature(uint32_t * start, uint32_t num)
 {

@@ -25,6 +25,7 @@ PLATFORM_MAP = \
     R.180 \
     RP.160 \
     SX740.102 \
+    1300D.120 \
 
 # SJE lots of noisy warnings, not fixing yet
 #    5DS.111 \

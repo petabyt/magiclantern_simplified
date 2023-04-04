@@ -16,37 +16,48 @@ char camera_model[32];
 uint32_t camera_model_id = 0;
 char firmware_version[32];
 char camera_serial[32];
+char camera_serial_2[64];
 
 /* is_camera("5D3", "1.2.3") - will check for a specific camera / firmware version */
 /* is_camera("5D3", "*") - will accept all firmware versions */
+/* is_camera("DIGIC", "5") - will accept all DIGIC 5 models */
 /* todo: possibly other classifications? */
-int is_camera(const char *model, const char *version)
+int is_camera(const char * model, const char * version)
 {
-    return
+    if (streq(model, "DIGIC"))
+    {
+        if (streq(version, "*"))
+        {
+            /* only DIGIC models supported */
+            return 1;
+        }
+
+        if (strlen(version) != 1)
+        {
+            /* only one-digit DIGIC version check is currently supported, i.e. no 4+ or similar */
+            return 0;
+        }
+
+        #ifdef CONFIG_VXWORKS
+        return version[0] == '3';
+        #endif
+        #ifdef CONFIG_DIGIC_V
+        return version[0] == '5';
+        #endif
+        #ifdef CONFIG_DIGIC_VI
+        return version[0] == '6';
+        #endif
+        #ifdef CONFIG_DIGIC_VII
+        return version[0] == '7';
+        #endif
+        //#ifdef CONFIG_DIGIC_IV - fixme
+        return version[0] == '4';
+        //#endif
+    }
+
+    return 
         streq(__camera_model_short, model) &&                         /* check camera model */
         (streq(firmware_version, version) || streq(version, "*"));    /* check firmware version */
-}
-
-// returns digic version as int
-int get_digic_version(void)
-{
-        #if defined(CONFIG_DIGIC_II)
-        return 2;
-        #elif defined(CONFIG_DIGIC_III)
-        return 3;
-        #elif defined(CONFIG_DIGIC_IV)
-        return 4;
-        #elif defined(CONFIG_DIGIC_V)
-        return 5;
-        #elif defined(CONFIG_DIGIC_VI)
-        return 6;
-        #elif defined(CONFIG_DIGIC_VII)
-        return 7;
-        #elif defined(CONFIG_DIGIC_VIII)
-        return 8;
-        #else
-        #error "FIXME: no CONFIG_DIGIC_version defined, or unknown CONFIG_DIGIC_version"
-        #endif
 }
 
 PROP_HANDLER(PROP_CAM_MODEL)
@@ -54,6 +65,10 @@ PROP_HANDLER(PROP_CAM_MODEL)
     memcpy((char *)&camera_model_id, (void*)buf + 32, 4);
     snprintf(camera_model, sizeof(camera_model), (const char *)buf);
 }
+
+
+volatile int serial_number_buf = 0;
+volatile int serial_number_len = 0;
 
 PROP_HANDLER(PROP_BODY_ID)
 {
@@ -70,6 +85,8 @@ PROP_HANDLER(PROP_BODY_ID)
     {
         snprintf(camera_serial, sizeof(camera_serial), "(unknown len %d)", len);
     }
+    serial_number_buf = buf;
+    serial_number_len = len;
 }
 
 PROP_HANDLER(PROP_FIRMWARE_VER)
@@ -81,24 +98,13 @@ volatile PROP_INT(PROP_LV_DISPSIZE, lv_dispsize);
 volatile PROP_INT(PROP_LIVE_VIEW_VIEWTYPE, _expsim);
 volatile PROP_INT(PROP_EFIC_TEMP, efic_temp);
 volatile PROP_INT(PROP_GUI_STATE, gui_state);
-#ifdef CONFIG_DIGIC_678
-// confirmed 750D, 200D, R
-volatile PROP_INT(PROP_PIC_QUALITY2, pic_quality);
-#else
 volatile PROP_INT(PROP_PIC_QUALITY, pic_quality);
-#endif
 volatile PROP_INT(PROP_AVAIL_SHOT, avail_shot);
-#if defined(CONFIG_DIGIC_VIII)
-/* R uses PROP_LVAF_MODE. However code suggests that both may be used
- * on DSLRs. When both are enabled, there's a race, so this is left to
- * be tested on 250D/850D/etc. */
-volatile PROP_INT(PROP_LVAF_MODE, af_mode);
-#else
 volatile PROP_INT(PROP_AF_MODE, af_mode);
-#endif
 volatile PROP_INT(PROP_METERING_MODE, metering_mode);
 volatile PROP_INT(PROP_DRIVE, drive_mode);
 volatile PROP_INT(PROP_STROBO_FIRING, strobo_firing);
+volatile PROP_INT(PROP_LIVE_VIEW_AF_SYSTEM, lv_af_mode);
 volatile PROP_INT(PROP_IMAGE_REVIEW_TIME, image_review_time);
 volatile PROP_INT(PROP_MIRROR_DOWN, mirror_down);
 volatile PROP_INT(PROP_LCD_BRIGHTNESS, backlight_level);
@@ -108,10 +114,12 @@ volatile PROP_INT(PROP_BURST_COUNT, burst_count);
 volatile PROP_INT(PROP_BATTERY_POWER, battery_level_bars);
 volatile PROP_INT(PROP_MOVIE_SOUND_RECORD, sound_recording_mode);
 volatile PROP_INT(PROP_DATE_FORMAT, date_format);
-volatile PROP_INT(PROP_AUTO_POWEROFF_TIME, auto_power_off_time);
+volatile PROP_INT(PROP_AUTO_POWEROFF_TIME, auto_power_off_time)
 volatile PROP_INT(PROP_VIDEO_SYSTEM, video_system_pal);
 volatile PROP_INT(PROP_LV_FOCUS_STATUS, lv_focus_status);
 volatile PROP_INT(PROP_ICU_UILOCK, icu_uilock);
+volatile PROP_INT(PROP_CONTINUOUS_AF, continuous_af_photo);
+volatile PROP_INT(PROP_MOVIE_SERVO_AF, continuous_af_movie);
 
 #ifdef CONFIG_NO_DEDICATED_MOVIE_MODE
 int ae_mode_movie = 1;
@@ -161,42 +169,11 @@ bool FAST is_movie_mode()
 
 volatile int shutter_count = 0;
 volatile int shutter_count_plus_lv_actuations = 0;
-#ifdef CONFIG_DIGIC_VIII
-volatile int total_shots_count  = 0;
-volatile int total_mirror_count = 0;
-
-// Digic 8 and up replace PROP_SHUTTER_COUNTER with PROP_MECHA_COUNTER.
-// See descriptions in property.h to learn more.
-PROP_HANDLER(PROP_MECHA_COUNTER)
-{
-    shutter_count = buf[0];      // TotalShutter
-    total_mirror_count = buf[1]; // TotalMirror
-
-#ifdef CONFIG_RP
-    // coon: Firmware of RP has a bug which leads into a very huge shutter count number.
-    // Regarding to a user of the forum who read out the shutter count on a fresh RP
-    // with only one photo taken, the offset seems to be 1086947309 so this value needs
-    // to be subtracted to get the real shutter count:
-
-    shutter_count -= 1086947309;
-#endif
-
-    // We don't have this info anymore, so just set both to the same value
-    shutter_count_plus_lv_actuations = shutter_count;
-}
-
-// New info on D8, total counter including silent shoots.
-PROP_HANDLER(PROP_RELEASE_COUNTER)
-{
-    total_shots_count = buf[0]; // TotalShoot
-}
-#else
 PROP_HANDLER(PROP_SHUTTER_COUNTER)
 {
     shutter_count = buf[0];
     shutter_count_plus_lv_actuations = buf[1];
 }
-#endif
 
 volatile int display_sensor = 0;
 
@@ -223,11 +200,7 @@ PROP_HANDLER(PROP_VIDEO_MODE)
 #ifdef CONFIG_LIVEVIEW
 PROP_HANDLER( PROP_LV_ACTION )
 {
-#ifdef CONFIG_750D // TODO: check D78
-    lv = !(uint32_t*)buf[0]; // now prop holds pointer to value
-#else
     lv = !buf[0];
-#endif
 }
 #endif
 
@@ -298,12 +271,8 @@ void set_recording_custom(int state)
 
 int lv_disp_mode;
 
-#ifndef LV_OVERLAYS_MODE
-/*
- * For models with LV_OVERLAYS_MODE defined we update in zebra.c instead.
- * See zebra.c `get_global_draw()` for more details.
- */
-PROP_HANDLER(PROP_LV_OUTPUT_TYPE)
+#ifndef CONFIG_EOSM //~ we update lv_disp_mode from 
+PROP_HANDLER(PROP_HOUTPUT_TYPE)
 {
     #if defined(CONFIG_5D3)
     /* 1 when Canon overlays are present on the built-in LCD, 0 when they are not present (so we can display our overlays) */
@@ -317,6 +286,11 @@ PROP_HANDLER(PROP_LV_OUTPUT_TYPE)
     #else
     lv_disp_mode = (uint8_t)buf[0];
     #endif
+
+    #ifdef CONFIG_5D2 // PROP_HOUTPUT_TYPE not reported correctly?
+    lv_disp_mode = (MEM(0x34894 + 0x48) != 3); // AJ_LDR_0x34894_guess_HDMI_disp_type_related_0x48
+    #endif
+
 }
 #endif
 
@@ -343,7 +317,7 @@ PROP_HANDLER( PROP_COPYRIGHT_STRING )
 char* get_video_mode_name(int include_fps)
 {
     static char zoom_msg[12];
-    snprintf(zoom_msg, sizeof(zoom_msg), "ZOOM-X%d", lv_dispsize);
+    snprintf(zoom_msg, sizeof(zoom_msg), "ZOOM-X%d", lv_dispsize & 0xF);
     
     char* video_mode = 
         is_pure_play_photo_mode()                   ? "PLAY-PH"  :      /* Playback, reviewing a picture */

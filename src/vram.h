@@ -24,17 +24,8 @@
  * Boston, MA  02110-1301, USA.
  */
 
-#include "internals.h"
-#include "internals-common.h"
 #include "compiler.h"
 
-// FIXME - I don't like having bmp_vram_info duplicated inside each
-// define block.  This is a hack to workaround modules not building
-// otherwise.  Modules are supposed to be camera independent, so
-// they don't set a CONFIG_DIGIC_XX value.  They'd see the extern
-// def for bmp_vram_info but not the struct, and fail to compile.
-// Still thinking about what a clean fix should be.
-#if defined(CONFIG_DIGIC_45)
 /** Canon data structure containing BMP VRAM address.
  * 
  * LCD: it points to a 720x480 cropped area, but the image buffer is actually 960x540.
@@ -49,30 +40,8 @@ struct bmp_vram_info
         uint32_t                off_0x04;
         uint8_t *               vram2;
 };
-extern struct bmp_vram_info bmp_vram_info[];
-#elif defined(CONFIG_DIGIC_678)
-/* https://www.magiclantern.fm/forum/index.php?topic=17360.msg212411#msg212411 */
-struct MARV
-{
-    uint32_t signature;         /* MARV - VRAM reversed */
-    uint8_t * bitmap_data;      /* either UYVY or UYVY + opacity */
-    uint8_t * opacity_data;     /* optional; if missing, it's interleaved in bitmap_data */
-    uint32_t flags;             /* unknown */
-    uint32_t width;             /* X resolution; may be larger than screen size */
-    uint32_t height;            /* Y resolution; may be larger than screen size */
-    void * pmem;                /* pointer to PMEM (Permanent Memory) structure */
-};
 
-struct bmp_vram_info
-{
-    struct MARV * vram1;        /* one of the two bitmap buffers - statically allocated? */
-    struct MARV * vram2;        /* the other bitmap buffer */
-    struct MARV * back_vram;    /* we need to write to the other one */
-};
 extern struct bmp_vram_info bmp_vram_info[];
-#endif
-
-//extern struct bmp_vram_info bmp_vram_info[];
 
 struct display_filter_buffers { void* src_buf; void* dst_buf; };
 

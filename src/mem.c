@@ -76,7 +76,7 @@ static struct semaphore * mem_sem = 0;
 
 struct mem_allocator
 {
-    const char name[16];                    /* malloc, AllocateMemory, shoot_malloc, task_mem... */
+    char name[16];                          /* malloc, AllocateMemory, shoot_malloc, task_mem... */
     mem_init_func init;                     /* can be null; called at startup, before all other INIT_FUNCs */
     mem_alloc_func malloc;
     mem_free_func free;
@@ -122,99 +122,6 @@ static int GetMaxRegionForAllocateMemory()
 int GetFreeMemForMalloc()
 {
     return MALLOC_FREE_MEMORY;
-}
-
-// This is for tracking allocs from malloc_aligned(),
-// where we don't return the real start of the block,
-// but later need to know it to use free_aligned()
-// with the returned pointer.
-struct alloc_str
-{
-    uint32_t start;
-    uint32_t len;
-};
-// Because we need to track them, and because aligned allocs
-// can be much less space efficient, limit these to a small number.
-#define MAX_ALIGNED_ALLOCS 16
-static struct alloc_str aligned_allocs[MAX_ALIGNED_ALLOCS] = {{0, 0}};
-static uint32_t alloc_count = 0;
-
-// As malloc(), but takes an alignment.  The returned pointer
-// will point to an address aligned to that value,
-// or NULL on failure.
-//
-// Must be paired with free_aligned().
-// Will crash if free() is used on a pointer obtained via malloc_aligned().
-//
-// E.g. malloc_aligned(0x80, 0x100) might return 0x100200,
-// and internally this might be a block of size 0x180,
-// starting at 0x100104.
-void *malloc_aligned(size_t len, uint32_t alignment)
-{
-    // The current implementation is quite naive, and inefficient
-    // if the alignment is large in comparison to the size.
-    //
-    // This function is presently used very rarely and with fairly
-    // large blocks.
-
-    if (alloc_count >= MAX_ALIGNED_ALLOCS)
-        return NULL; // too many aligned allocs to track
-
-    void *raw_ptr = _malloc(len + alignment);
-    if (raw_ptr == NULL)
-        return NULL; // DryOS malloc failed
-
-    // find a slot to store alloc info, so we can later free
-    uint32_t i = 0;
-    if (aligned_allocs[alloc_count].start == 0)
-    {
-        i = alloc_count;
-    }
-    else
-    {
-        while (i < MAX_ALIGNED_ALLOCS)
-        {
-            if (aligned_allocs[i].start == 0)
-                break;
-            i++;
-        }
-    }
-
-    uint32_t raw_ptr_val = (uint32_t)raw_ptr;
-    aligned_allocs[i].start = raw_ptr_val;
-    aligned_allocs[i].len = len;
-    alloc_count++;
-
-    //DryosDebugMsg(0, 15, "raw_ptr_val: 0x%x", raw_ptr_val);
-    if (raw_ptr_val % alignment != 0)
-    {
-        raw_ptr_val += alignment - raw_ptr_val % alignment;
-    }
-    //DryosDebugMsg(0, 15, "raw_ptr_val: 0x%x", raw_ptr_val);
-
-    return (void *)raw_ptr_val;
-}
-
-// Used for freeing pointers returned by malloc_aligned()
-void free_aligned(void *ptr)
-{
-    uint32_t ptr_val = (uint32_t)ptr;
-    uint32_t i = 0;
-
-    // find which block holds this allocation
-    while (i < MAX_ALIGNED_ALLOCS)
-    {
-        if (aligned_allocs[i].start <= ptr_val
-            && aligned_allocs[i].start + aligned_allocs[i].len > ptr_val)
-        {
-            _free((void *)aligned_allocs[i].start);
-            aligned_allocs[i].start = 0;
-            aligned_allocs[i].len = 0;
-            alloc_count--;
-            break;
-        }
-        i++;
-    }
 }
 
 static struct mem_allocator allocators[] = {
@@ -297,11 +204,7 @@ static struct mem_allocator allocators[] = {
         .minimum_free_space = 256 * 1024,
     },
 
-#if defined(CONFIG_MEMORY_SRM_NOT_WORKING)
-    // SJE FIXME SRM is not understood well enough to function on these cams,
-    // on tested cams (RP, 200D, R, M50), the free function seems to not work
-    // somehow.
-#else
+#if 1
     /* large buffers (30-40 MB), but you can't even take a picture with one of those allocated */
     {
         .name = "srm_malloc",
@@ -315,7 +218,8 @@ static struct mem_allocator allocators[] = {
         .is_preferred_for_temporary_space = 2,  /* prefer not to use it, use shoot_malloc if you can */
 
         /* only use it for huge buffers */
-        .minimum_alloc_size = 20 * 1024 * 1024,
+//        .preferred_min_alloc_size = 20 * 1024 * 1024,
+        .minimum_alloc_size = 25 * 1024 * 1024,
     },
 #endif
 #endif  /* CONFIG_INSTALLER */
@@ -345,10 +249,10 @@ struct memcheck_hdr
 struct memcheck_entry
 {
     unsigned int ptr;
-    const char * file;
+    char * file;
     uint16_t failed;
     uint16_t line;
-    const char * task_name;
+    char * task_name;
 };
 
 static struct memcheck_entry memcheck_entries[MEMCHECK_ENTRIES];
@@ -358,10 +262,10 @@ static volatile int last_error = 0;
 static char last_error_msg_short[20] = "";
 static char last_error_msg[100] = "";
 
-static const char * file_name_without_path(const char * file)
+static char* file_name_without_path(const char* file)
 {
     /* only show the file name, not full path */
-    const char * fn = file + strlen(file) - 1;
+    char* fn = (char*)file + strlen(file) - 1;
     while (fn > file && *(fn-1) != '/') fn--;
     return fn;
 }
@@ -490,19 +394,19 @@ static unsigned int memcheck_check(unsigned int ptr, unsigned int entry)
         int size = ((struct memcheck_hdr *)ptr)->length;
         int allocator = ((struct memcheck_hdr *)ptr)->allocator;
 
-        const char * file = "unk";
+        char* file = "unk";
         int line = 0;
-        const char * task_name = "unk";
-        const char * allocator_name = "unk";
+        char* task_name = "unk";
+        char* allocator_name = "unk";
         if (id_ok)
         {
-            file = memcheck_entries[id].file;
+            file = (char*) memcheck_entries[id].file;
             line = memcheck_entries[id].line;
             task_name = memcheck_entries[id].task_name;
         }
         else
         {
-            task_name = get_current_task_name();    
+            task_name = current_task->name;
         }
         
         if (allocator >= 0 && allocator < COUNT(allocators))
@@ -581,11 +485,8 @@ static void memcheck_add(unsigned int ptr, const char *file, unsigned int line)
     memcheck_entries[memcheck_bufpos].failed = 0;
     memcheck_entries[memcheck_bufpos].file = file_name_without_path(file);
     memcheck_entries[memcheck_bufpos].line = line;
-    /* assuming we will never call malloc/free from interrupts,
-     * this will return a pointer to Canon's task name */
-    memcheck_entries[memcheck_bufpos].task_name = get_current_task_name();
-
-
+    memcheck_entries[memcheck_bufpos].task_name = current_task->name;
+    
     ((struct memcheck_hdr *)ptr)->id = memcheck_bufpos;
     
     sei(state);
@@ -887,12 +788,12 @@ static int choose_allocator(int size, unsigned int flags)
 /* these two will replace all malloc calls */
 
 /* returns 0 if it couldn't allocate */
-void* __mem_malloc(size_t size, unsigned int flags, const char * file, unsigned int line)
+void* __mem_malloc(size_t size, unsigned int flags, const char* file, unsigned int line)
 {
     ASSERT(mem_sem);
     take_semaphore(mem_sem, 0);
 
-    dbg_printf("alloc(%s) from %s:%d task %s\n", format_memory_size_and_flags(size, flags), file, line, get_current_task_name());
+    dbg_printf("alloc(%s) from %s:%d task %s\n", format_memory_size_and_flags(size, flags), file, line, current_task->name);
     
     /* show files without full path in error messages (they are too big) */
     file = file_name_without_path(file);
@@ -949,7 +850,7 @@ void* __mem_malloc(size_t size, unsigned int flags, const char * file, unsigned 
     
     /* could not find an allocator (maybe out of memory?) */
     snprintf(last_error_msg_short, sizeof(last_error_msg_short), "alloc(%s)", format_memory_size_and_flags(size, flags));
-    snprintf(last_error_msg, sizeof(last_error_msg), "No allocator for %s at %s:%d, %s.", format_memory_size_and_flags(size, flags), file, line, get_current_task_name());
+    snprintf(last_error_msg, sizeof(last_error_msg), "No allocator for %s at %s:%d, %s.", format_memory_size_and_flags(size, flags), file, line, current_task->name);
     dbg_printf("alloc not found\n");
     give_semaphore(mem_sem);
     return 0;
@@ -969,7 +870,7 @@ void __mem_free(void* buf)
     /* make sure the caching flag is the same as returned by the allocator */
     buf = (flags & UNCACHEABLE_FLAG) ? UNCACHEABLE(buf) : CACHEABLE(buf);
 
-    dbg_printf("free(%x %s) from task %s\n", buf, format_memory_size_and_flags(((struct memcheck_hdr *)ptr)->length, flags), get_current_task_name());
+    dbg_printf("free(%x %s) from task %s\n", buf, format_memory_size_and_flags(((struct memcheck_hdr *)ptr)->length, flags), current_task->name);
     
     if (allocator_index >= 0 && allocator_index < COUNT(allocators))
     {
@@ -1050,18 +951,14 @@ void _mem_init()
 
 static volatile int max_stack_ack = 0;
 
-static void max_stack_try(void* size)
-{
-    max_stack_ack = (int) size;
-}
+static void max_stack_try(void* size) { max_stack_ack = (int) size; }
 
 static int stack_size_crit(int x)
 {
     int size = x * 1024;
     task_create("stack_try", 0x1e, size, max_stack_try, (void*) size);
     msleep(50);
-    if (max_stack_ack == size)
-        return 1;
+    if (max_stack_ack == size) return 1;
     return -1;
 }
 
@@ -1078,29 +975,21 @@ static char memory_map[720];
 /* fixme: find a way to read the free stack memory from DryOS */
 /* current workaround: compute it by trial and error when you press SET on Free Memory menu item */
 static volatile int guess_mem_running = 0;
-static void guess_free_mem_task(void *priv, int delta)
+static void guess_free_mem_task(void* priv, int delta)
 {
     /* reset values */
     max_stack_ack = 0;
     max_shoot_malloc_mem = 0;
     max_shoot_malloc_frag_mem = 0;
 
-#ifdef CONFIG_DIGIC_678
-    // SJE only tested on 200D, but there, trying to create
-    // a task with a too large stack via stack_size_crit()
-    // triggers Err 70.  128 it gets glitchy, 256 dies hard.
-//    bin_search(1, 72, stack_size_crit);
-    bin_search(1, 72, stack_size_crit);
-#else
-    bin_search(1, 1024, stack_size_crit);
-#endif
+    bin_search(1, 256, stack_size_crit);
 
     /* we won't keep these things allocated much, so we can pause malloc activity while running this (just so nothing will fail) */
     /* note: we use the _underlined routines here, but please don't do that in user code */
     take_semaphore(mem_sem, 0);
 
     {
-        struct memSuite *shoot_suite = _shoot_malloc_suite_contig(0);
+        struct memSuite * shoot_suite = _shoot_malloc_suite_contig(0);
         if (!shoot_suite)
         {
             beep();
@@ -1108,13 +997,12 @@ static void guess_free_mem_task(void *priv, int delta)
             give_semaphore(mem_sem);
             return;
         }
-
         ASSERT(shoot_suite->num_chunks == 1);
         max_shoot_malloc_mem = shoot_suite->size;
         _shoot_free_suite(shoot_suite);
     }
 
-    struct memSuite *shoot_suite = _shoot_malloc_suite(0);
+    struct memSuite * shoot_suite = _shoot_malloc_suite(0);
     if (!shoot_suite)
     {
         beep();
@@ -1144,18 +1032,9 @@ static void guess_free_mem_task(void *priv, int delta)
         STR_APPEND(shoot_malloc_frag_desc, mb%10 ? "%s%d.%d" : "%s%d", total ? "+" : "", mb/10, mb%10);
         total += chunkAvail;
 
-        uint32_t start = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAddress);
-        uint32_t width = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAvail);
-
-        if ((start < sizeof(memory_map)) && (start + width < sizeof(memory_map)))
-        {
-            memset(memory_map + start, COLOR_GREEN1, width);
-        }
-        else
-        {
-            DryosDebugMsg(0, 15, "[ML] g_f_m_t: green: OOB write memory_map[%d]: ", sizeof(memory_map));
-            DryosDebugMsg(0, 15, "[ML] g_f_m_t: s=%d, w=%d, cAd=%X, cAv=%X", start, width, chunkAddress, chunkAvail);
-        }
+        int start = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAddress);
+        int width = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAvail);
+        memset(memory_map + start, COLOR_GREEN1, width);
 
         currentChunk = GetNextMemoryChunk(shoot_suite, currentChunk);
     }
@@ -1163,10 +1042,9 @@ static void guess_free_mem_task(void *priv, int delta)
     ASSERT(max_shoot_malloc_frag_mem == total);
 
     exmem_clear(shoot_suite, 0);
-    _shoot_free_suite(shoot_suite);
 
     /* test the new SRM job allocator */
-    struct memSuite *srm_suite = _srm_malloc_suite(0);
+    struct memSuite * srm_suite = _srm_malloc_suite(0);
     
     if (!srm_suite)
     {
@@ -1187,18 +1065,9 @@ static void guess_free_mem_task(void *priv, int delta)
         ASSERT(chunkAvail == srm_buffer_size);
         printf("srm buffer: %x ... %x\n", chunkAddress, chunkAddress + chunkAvail - 1);
 
-        uint32_t start = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAddress);
-        uint32_t width = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAvail);
-
-        if ((start < sizeof(memory_map)) && (start + width < sizeof(memory_map)))
-        {
-            memset(memory_map + start, COLOR_CYAN, width);
-        }
-        else
-        {
-            DryosDebugMsg(0, 15, "[ML] g_f_m_t: cyan: OOB write memory_map[%d]: ", sizeof(memory_map));
-            DryosDebugMsg(0, 15, "[ML] g_f_m_t: s=%d, w=%d, cAd=%X, cAv=%X", start, width, chunkAddress, chunkAvail);
-        }
+        int start = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAddress);
+        int width = MEMORY_MAP_ADDRESS_TO_INDEX(chunkAvail);
+        memset(memory_map + start, COLOR_CYAN, width);
 
         currentChunk = GetNextMemoryChunk(srm_suite, currentChunk);
     }
@@ -1206,21 +1075,13 @@ static void guess_free_mem_task(void *priv, int delta)
     ASSERT(srm_buffer_size * srm_num_buffers == srm_suite->size);
 
     exmem_clear(srm_suite, 0);
+    
+    _shoot_free_suite(shoot_suite);
     _srm_free_suite(srm_suite);
 
     /* mallocs can resume now */
     give_semaphore(mem_sem);
 
-#ifdef CONFIG_DIGIC_678
-// SJE FIXME the old code crashes on new Digic,
-// because it tries to read from forbidden regions.
-//
-// Avoid the per CPU mem region?  There's a 0xdf00.0000
-// region that is very slow to read from that is probably
-// best avoided, too.  I would also expect this to crash
-// when reading from regions that aren't mapped, since
-// new Digic has MMU, but I haven't tested this.
-#else
     /* memory analysis: how much appears unused? */
     for (uint32_t i = 0; i < 720; i++)
     {
@@ -1247,7 +1108,6 @@ static void guess_free_mem_task(void *priv, int delta)
 
         memory_map[i] = empty ? COLOR_BLUE : COLOR_RED;
     }
-#endif
 
     menu_redraw();
     guess_mem_running = 0;
@@ -1320,18 +1180,14 @@ static MENU_UPDATE_FUNC(meminfo_display)
                     draw_line(i, 400, i, 410, memory_map[i]);
             
             /* show some common addresses on the memory map */
-            struct { uint32_t addr; const char * name; } common_addresses[] = {
+            struct { uint32_t addr; char* name; } common_addresses[] = {
                 { RESTARTSTART,                         "ML"  },    /* where ML is loaded */
                 { (uint32_t) raw_info.buffer,           "RAW" },    /* raw buffer */
                 { (uint32_t) bmp_vram_idle(),           "BMI" },    /* "idle" BMP buffer (back buffer) */
                 { (uint32_t) bmp_vram_real(),           "BMP" },    /* current BMP buffer (displayed on the screen) */
                 { YUV422_LV_BUFFER_DISPLAY_ADDR,        "LVD" },    /* current LV YUV buffer (displayed) */
-#ifndef CONFIG_DIGIC_678
-// These addresses are not yet known for modern Digic.  They may not
-// even exist as the drawing routines are changed significantly by Ximr.
                 { shamem_read(REG_EDMAC_WRITE_LV_ADDR), "LVW" },    /* LV YUV buffer being written by EDMAC */
                 { shamem_read(REG_EDMAC_WRITE_HD_ADDR), "HDW" },    /* HD YUV buffer being written by EDMAC */
-#endif
             };
 
             for (int i = 0; i < COUNT(common_addresses); i++)
@@ -1350,7 +1206,7 @@ static MENU_UPDATE_FUNC(meminfo_display)
                     int c = MEMORY_MAP_ADDRESS_TO_INDEX(a);
                     draw_line(c, 410, c, 420, COLOR_YELLOW);
                     int msg = i < 10 ? '0'+i : 'a'+i;  /* extended hex to fit in the single character */
-                    bmp_printf(FONT_SMALL | FONT_ALIGN_CENTER, c, 415, "%s", (const char *) &msg);
+                    bmp_printf(FONT_SMALL | FONT_ALIGN_CENTER, c, 415, "%s", (char*) &msg);
                 }
             }
             break;
@@ -1367,7 +1223,8 @@ static MENU_UPDATE_FUNC(meminfo_display)
 
             if (ABS(ml_used_mem - ml_reserved_mem) < 1024)
             {
-                MENU_SET_VALUE("%s", format_memory_size(ml_used_mem));
+                MENU_SET_VALUE("%s of ",format_memory_size(ml_used_mem));
+                MENU_APPEND_VALUE("%s", format_memory_size(ml_reserved_mem));
             }
             else
             {
@@ -1494,10 +1351,10 @@ static MENU_UPDATE_FUNC(mem_total_display)
                 continue;
             }
 
-            const char * file = memcheck_entries[buf_pos].file;
+            char* file = (char*)memcheck_entries[buf_pos].file;
             int line = memcheck_entries[buf_pos].line;
-            const char * task_name = memcheck_entries[buf_pos].task_name;
-            const char * allocator_name = allocators[allocator].name;
+            char* task_name = memcheck_entries[buf_pos].task_name;
+            char* allocator_name = allocators[allocator].name;
             bmp_printf(FONT_MED, x, y, "%s%s", memcheck_entries[buf_pos].failed ? "[FAIL] " : "", format_memory_size_and_flags(size, flags));
             bmp_printf(FONT_MED, 180, y, "%s:%d task %s", file, line, task_name);
             bmp_printf(FONT_MED | FONT_ALIGN_RIGHT, 710, y, allocator_name);
@@ -1530,7 +1387,7 @@ static MENU_UPDATE_FUNC(mem_total_display)
         
         int peak_y = y+10;
         int peak = alloc_total_peak_with_memcheck / 1024;
-        //int total = alloc_total_with_memcheck / 1024;
+        int total = alloc_total_with_memcheck / 1024;
         int maxh = 480 - peak_y;
         bmp_fill(COLOR_GRAY(20), 0, 480-maxh, 720, maxh);
         for (int i = first_index; i != history_index; i = MOD(i+1, HISTORY_ENTRIES))

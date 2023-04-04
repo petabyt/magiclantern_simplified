@@ -71,7 +71,7 @@ int get_free_space_32k(const struct card_info* card)
 
 
 static CONFIG_INT("card.test", card_test_enabled, 1);
-static CONFIG_INT("card.force_type", card_force_type, 1);
+static CONFIG_INT("card.force_type", card_force_type, 0);
 
 #ifndef CONFIG_INSTALLER
 #ifdef CONFIG_5D3
@@ -521,9 +521,9 @@ int FIO_ReadFile( FILE* stream, void* ptr, size_t count )
         /* there's a lot of existing code (e.g. mlv_play) that's hard to refactor */
         /* workaround: allocate DMA memory here (for small buffers only)
          * code that operates on large buffers should be already correct */
-        if (!streq(get_current_task_name(), "run_test"))
+        if (!streq(current_task->name, "run_test"))
         {
-            printf("fixme: please use fio_malloc (in %s)\n", get_current_task_name());
+            printf("fixme: please use fio_malloc (in %s)\n", current_task->name);
         }
         ASSERT(count <= 8192);
         void * ubuf = fio_malloc(count);
@@ -553,14 +553,8 @@ int FIO_WriteFile( FILE* stream, const void* ptr, size_t count )
         /* overhead is minimal (see selftest.mo for benchmark) */
         sync_caches();
     }
-#ifdef CONFIG_MEM_2GB
-    // Not all mem is cacheable on these cams, and FIO_WriteFile
-    // requires uncacheable address, or errors:
-    // [FSU] WARN Please Designate Uncacheable Addr!!!!!!
-    return _FIO_WriteFile(stream, UNCACHEABLE(ptr), count);
-#else
+
     return _FIO_WriteFile(stream, ptr, count);
-#endif
 }
 
 FILE* FIO_CreateFileOrAppend(const char* name)
@@ -806,7 +800,8 @@ struct menu_entry card_menus[] = {
                 .min = 0,
                 .max = 2,
                 .choices = CHOICES("OFF", "CF", "SD"),
-                .help = "Make sure your preferred card is selected at startup."
+                .help  = "Make sure your preferred card is selected at startup.",
+                .help2 = "This changes Canon card selection at startup - nothing else."
             },
             MENU_EOL,
         }

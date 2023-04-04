@@ -40,7 +40,7 @@ int sound_recording_enabled()
     return sound_recording_enabled_canon();
 }
 
-#if defined(CONFIG_500D) || defined(CONFIG_5D3) || defined(CONFIG_DIGIC_678)
+#if defined(CONFIG_500D) || defined(CONFIG_5D3)
 int audio_thresholds[] = { 0x7fff, 0x7213, 0x65ab, 0x5a9d, 0x50c2, 0x47fa, 0x4026, 0x392c, 0x32f4, 0x2d6a, 0x2879, 0x2412, 0x2026, 0x1ca7, 0x1989, 0x16c2, 0x1449, 0x1214, 0x101d, 0xe5c, 0xccc, 0xb68, 0xa2a, 0x90f, 0x813, 0x732, 0x66a, 0x5b7, 0x518, 0x48a, 0x40c, 0x39b, 0x337, 0x2dd, 0x28d, 0x246, 0x207, 0x1ce, 0x19c, 0x16f, 0x147 };
 #endif
 
@@ -78,7 +78,7 @@ struct gain_struct
 };
 
 static struct gain_struct gain = {
-    .sem                    = (void*) 1,
+    .sem                    = (void*) 0,
 };
 
 
@@ -494,7 +494,7 @@ static int audio_meters_step( int reconfig_audio )
         }
         else if(!reconfig_audio)
         {
-            #if defined(CONFIG_600D) || defined(CONFIG_7D) || defined(CONFIG_5D4)
+            #if defined(CONFIG_600D) || defined(CONFIG_7D)
             audio_configure(1);
             #elif defined(CONFIG_650D) || defined(CONFIG_700D) || defined(CONFIG_EOSM) || defined(CONFIG_100D)
             void PowerMicAmp();
@@ -1061,7 +1061,10 @@ enable_recording(int mode)
             #if defined(CONFIG_600D) || defined(CONFIG_7D)
             audio_configure(1);
             #else
-            give_semaphore( gain.sem );
+            if (gain.sem)
+            {
+                give_semaphore( gain.sem );
+            }
             #endif
             break;
         case 1:
@@ -1076,7 +1079,10 @@ enable_recording(int mode)
 // to be called from some other tasks that may mess with audio 
 static void audio_force_reconfigure() 
 {
-    give_semaphore( gain.sem ); 
+    if (gain.sem)
+    {
+        give_semaphore( gain.sem ); 
+    }
 }
 
 static void
@@ -1111,3 +1117,4 @@ void input_toggle()
     NotifyBox(2000, "Input: %s", get_audio_input_string());
 #endif
 }
+

@@ -16,7 +16,7 @@
 #include "module.h"
 
 /* to refactor with CBR */
-extern void lv_vsync_signal();
+extern void _lv_vsync_signal();
 extern void hdr_step();
 extern void raw_lv_vsync();
 extern int hdr_kill_flicker();
@@ -72,6 +72,9 @@ int wait_lv_frames(int num_frames)
     return 1;
 }
 #endif
+
+extern void digic_iso_step();
+
 static void FAST vsync_func() // called once per frame.. in theory :)
 {
     vsync_counter++;
@@ -100,8 +103,9 @@ static void FAST vsync_func() // called once per frame.. in theory :)
     #endif
     #endif
 
-    extern void digic_iso_step();
+    #if !defined(CONFIG_DIGIC_V)
     digic_iso_step();
+    #endif
     
     extern void image_effects_step();
     image_effects_step();
@@ -123,9 +127,6 @@ static int state_matrix[num_states][num_inputs];
 #endif
 
 static int (*StateTransition)(void*,int,int,int,int) = 0;
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-variable"
-// without this, warns on unused old_state, in some configurations
 static int FAST stateobj_lv_spy(struct state_object * self, int x, int input, int z, int t)
 {
     int old_state = self->current_state;
@@ -144,20 +145,20 @@ static int FAST stateobj_lv_spy(struct state_object * self, int x, int input, in
 // this is tricky...
 #if defined(CONFIG_DIGIC_V)
     if (self == DISPLAY_STATE && (input == INPUT_ENABLE_IMAGE_PHYSICAL_SCREEN_PARAMETER))
-        lv_vsync_signal();
+        _lv_vsync_signal();
 #elif defined(CONFIG_5D2)
     if (self == LV_STATE)//&& old_state == 4)
     {
-        //~ lv_vsync_signal();
+        //~ _lv_vsync_signal();
     }
 #elif defined(CONFIG_60D)
     if (self == EVF_STATE && input == 5 && old_state == 5) // evfReadOutDoneInterrupt
-        lv_vsync_signal();
+        _lv_vsync_signal();
 #elif defined(CONFIG_600D)
     if (self == EVF_STATE && old_state == 5) {  
-        //600D Goes 3 - 4 - 5 5 and 3 ever 1/2 frame
-        lv_vsync_signal();
-    }
+		//600D Goes 3 - 4 - 5 5 and 3 ever 1/2 frame
+        _lv_vsync_signal();
+	}
 #endif
     // sync display filters (for these, we need to redirect display buffers
     #ifdef DISPLAY_STATE
@@ -231,13 +232,13 @@ static int FAST stateobj_lv_spy(struct state_object * self, int x, int input, in
         #endif
         
         #ifdef CONFIG_DIGIC_V
+        digic_iso_step();
         vignetting_correction_apply_regs();
         #endif
     }
     #endif
     return ans;
 }
-#pragma GCC diagnostic pop
 
 #ifdef CONFIG_5DC
 static int stateobj_em_spy(struct state_object * self, int x, int input, int z, int t)

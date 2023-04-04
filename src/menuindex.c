@@ -21,15 +21,7 @@ static MENU_UPDATE_FUNC(set_scrollwheel_display)
     if (info->can_custom_draw)
     {
         int x = bmp_string_width(MENU_FONT, entry->name) + 40;
-        #if defined(CONFIG_DIGIC_678)
-        // SJE FIXME we can't use ICON_MAINDIAL as that's in Canon bitmap font
-        // and Digic >= 7 doesn't have it.  So I substitute a different icon.
-        // A better fix might be to make our own dial icon and add it to ico.c,
-        // then we could use the same code on all cams.
-        bfnt_draw_char(ICON_ML_MODIFIED, x, info->y - 5, COLOR_WHITE, NO_BG_ERASE);
-        #else
         bfnt_draw_char(ICON_MAINDIAL, x, info->y - 5, COLOR_WHITE, NO_BG_ERASE);
-        #endif
     }
 }
 
@@ -103,7 +95,7 @@ static struct menu_entry help_menus[] = {
         #endif
         .choices = CHOICES("Edit in LiveView"),
     },
-    #if FEATURE_JUNKIE_MENU
+    #ifdef FEATURE_JUNKIE_MENU
     {
         .select = menu_nav_help_open,
         .name = "Press MENU",
@@ -159,3 +151,5 @@ help_menu_init( void* unused )
 }
 
 INIT_FUNC( "help_menu", help_menu_init );
+
+

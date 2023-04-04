@@ -73,30 +73,27 @@ static int handle_buttons(struct event * event)
     extern int ml_started;
     if (!ml_started) return 1;
 
-    DryosDebugMsg(0,15,"event: %08x", event->param);
+
     if (handle_common_events_by_feature(event) == 0) return 0;
 
     return 1;
 }
 
-/** TODO: rename stuff in this structure, don't use camera names maybe?
- * Other possibility, move in-structure offset to platform dir and define
- * per camera. */
 struct gui_main_struct {
-  void *          obj;                     // off_0x00;
+  void *          obj;        // off_0x00;
   uint32_t        counter_550d;
   uint32_t        off_0x08;
-  uint32_t        counter;                 // off_0x0c;
+  uint32_t        counter; // off_0x0c;
   uint32_t        off_0x10;
   uint32_t        off_0x14;
-  struct msg_queue *    msg_queue_m50;     // off_0x18;
-  struct msg_queue *    msg_queue_eosr;    // off_0x1C;
+  uint32_t        off_0x18;
+  uint32_t        off_0x1c;
   uint32_t        off_0x20;
   uint32_t        off_0x24;
   uint32_t        off_0x28;
   uint32_t        off_0x2c;
-  struct msg_queue *    msg_queue;         // off_0x30;
-  struct msg_queue *    off_0x34;          // off_0x34;
+  struct msg_queue *    msg_queue;    // off_0x30;
+  struct msg_queue *    off_0x34;    // off_0x34;
   struct msg_queue *    msg_queue_550d;    // off_0x38;
   uint32_t        off_0x3c;
 };
@@ -116,12 +113,6 @@ void ml_gui_main_task()
     {
         #if defined(CONFIG_550D) || defined(CONFIG_7D)
         msg_queue_receive(gui_main_struct.msg_queue_550d, &event, 0);
-        gui_main_struct.counter_550d--;
-        #elif defined(CONFIG_R) || defined(CONFIG_RP) || defined(CONFIG_850D)
-        msg_queue_receive(gui_main_struct.msg_queue_eosr, &event, 0);
-        gui_main_struct.counter_550d--;
-        #elif defined(CONFIG_M50) || defined(CONFIG_SX740)
-        msg_queue_receive(gui_main_struct.msg_queue_m50, &event, 0);
         gui_main_struct.counter_550d--;
         #else
         msg_queue_receive(gui_main_struct.msg_queue, &event, 0);
@@ -164,8 +155,7 @@ void ml_gui_main_task()
         }
 
         void(*f)(struct event *) = funcs[index];
-        if (f != NULL)
-            f(event);
+        f(event);
     }
 } 
 

@@ -56,6 +56,23 @@ struct cf_device
 
 #endif
 
+/** Shadow copy of the NVRAM boot flags stored at 0xF8000000 */
+#define NVRAM_BOOTFLAGS     ((void*) 0xF8000000)
+struct boot_flags
+{
+    uint32_t        firmware;   // 0x00
+    uint32_t        bootdisk;   // 0x04
+    uint32_t        ram_exe;    // 0x08
+    uint32_t        update;     // 0x0c
+    uint32_t        flag_0x10;
+    uint32_t        flag_0x14;
+    uint32_t        flag_0x18;
+    uint32_t        flag_0x1c;
+};
+
+static struct boot_flags * const    boot_flags = NVRAM_BOOTFLAGS;;
+
+
 extern struct cf_device * const cf_device[];
 extern struct cf_device * const sd_device[];
 
@@ -107,7 +124,6 @@ static void exfat_sum(uint32_t* buffer) // size: 12 sectors (0-11)
 int
 bootflag_write_bootblock( void )
 {
-
 #if defined(CONFIG_7D)
     struct cf_device * const dev = (struct cf_device *) cf_device[6];
 #elif defined(CONFIG_5D3)
@@ -115,9 +131,6 @@ bootflag_write_bootblock( void )
     int ml_on_cf = (get_ml_card()->drive_letter[0] == 'A');
     extern struct cf_device ** cf_device_ptr[];
     struct cf_device * const dev = (struct cf_device *) (ml_on_cf ? cf_device_ptr[0][4] : sd_device[1]);
-#elif defined(CONFIG_R)
-    //kitor: R180 has a single pointer to device structure.
-    struct cf_device * const dev = (struct cf_device *) sd_device[0];
 #else
     struct cf_device * const dev = (struct cf_device *) sd_device[1];
 #endif
@@ -198,8 +211,7 @@ bootflag_write_bootblock( void )
     uint8_t *block = fio_malloc( 512 );
     
     int i;
-    for(i=0; i<512; i++)
-        block[i] = 0xAA;
+    for(i=0; i<512; i++) block[i] = 0xAA;
 
     dev->read_block( dev, 0, 1, block ); //overwrite our AAAs in our buffer with the MBR partition of the SD card.
     
@@ -210,14 +222,14 @@ bootflag_write_bootblock( void )
     {
         dev->read_block( dev, 0, 1, block );
         memcpy( block + 0x47, (uint8_t*) "EOS_DEVELOP", 0xB );
-        memcpy( block + 0x5C, (uint8_t*) "BOOTDISK", 0x8 );
+        memcpy( block + 0x5C, (uint8_t*) "BOOTDISK", 0xB );
         dev->write_block( dev, 0, 1, block );
     }
     else if( strncmp((const char*) block + 0x36, "FAT16", 5) == 0 ) //check if this card is FAT16
     {
         dev->read_block( dev, 0, 1, block );
         memcpy( block + 0x2B, (uint8_t*) "EOS_DEVELOP", 0xB );
-        memcpy( block + 0x40, (uint8_t*) "BOOTDISK", 0x8 );
+        memcpy( block + 0x40, (uint8_t*) "BOOTDISK", 0xB );
         dev->write_block( dev, 0, 1, block );
     }
     else if( strncmp((const char*) block + 0x3, "EXFAT", 5) == 0 ) //check if this card is EXFAT

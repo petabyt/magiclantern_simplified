@@ -255,11 +255,6 @@ static int handle_Q_button_equiv(struct event * event)
         return 1;
     }
 
-// stop compiler warning when none of the cases are defined
-#if defined(BGMT_Q_ALT) || defined(BGMT_RATE) || defined(CONFIG_5D2) || \
-    defined(CONFIG_7D) || defined(CONFIG_50D) || defined(CONFIG_500D) || \
-    defined(CONFIG_5DC)
-
     switch (event->param)
     {
 #ifdef BGMT_Q_ALT
@@ -284,7 +279,6 @@ static int handle_Q_button_equiv(struct event * event)
         fake_simple_button(BGMT_Q);
         return 0;
     }
-#endif
     
     return 1;
 }
@@ -450,8 +444,6 @@ int handle_common_events_by_feature(struct event * event)
         event->param == GMT_GUICMD_LOCK_OFF)
     {
         pre_shutdown_requested = 4;
-        info_led_on(); _card_led_on();
-        config_save_at_shutdown();
         info_led_on(); _card_led_on();
         return 1;
     }
@@ -779,19 +771,17 @@ void exit_play_qr_menu_mode()
     /* if in LiveView, wait for the first frame */
     if (lv)
     {
-        #ifdef CONFIG_STATE_OBJECT_HOOKS
         wait_lv_frames(1);
-        #endif
     }
 
-    /* wait for any remaining GUI stuff to settle */
-    for (int i = 0; i < 10 && !display_idle(); i++)
+    /* wait for display to come up, up to 1 second */
+    for (int i = 0; i < 10 && !DISPLAY_IS_ON; i++)
     {
         msleep(100);
     }
 
-    /* also wait for display to come up, up to 1 second */
-    for (int i = 0; i < 10 && !DISPLAY_IS_ON; i++)
+    /* wait for any remaining GUI stuff to settle, up to 2 seconds */
+    for (int i = 0; i < 20 && !display_idle(); i++)
     {
         msleep(100);
     }

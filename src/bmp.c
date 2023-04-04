@@ -27,10 +27,8 @@
 #include "dryos.h"
 #include "bmp.h"
 #include "font.h"
-#include "compositor.h"
 #include <stdarg.h>
 #include "propvalues.h"
-#include "zebra.h"
 
 //~ int bmp_enabled = 1;
 
@@ -68,12 +66,7 @@
             return (uint8_t*)((uintptr_t)bmp_buf - BMP_HDMI_OFFSET - 0xb28);
 
         // something else - new camera? return it unchanged (failsafe)
-        #ifdef FEATURE_VRAM_RGBA
-        // SJE we use a malloc'd buffer and the above hack doesn't work, so,
-        // don't assert.
-        #else
         ASSERT(0);
-        #endif
         return bmp_buf;
     }
 
@@ -96,41 +89,15 @@
 static int bmp_idle_flag = 0;
 
 void bmp_draw_to_idle(int value) { bmp_idle_flag = value; }
-
-#ifdef FEATURE_VRAM_RGBA
-struct MARV *rgb_vram_info = NULL;
-static uint8_t *bmp_vram_indexed = NULL;
-// SJE what is an appropriate priority for this task?
-TASK_CREATE( "redraw_task", refresh_yuv_from_rgb_task, 0, 0x1e, 0x1000 );
-#endif
-// SJE should this global live in bmp.c?
 uint32_t ml_refresh_display_needed = 0;
 
 /** Returns a pointer to currently selected BMP vram (real or mirror) */
 uint8_t * bmp_vram(void)
 {
-    #if defined(CONFIG_VXWORKS)
+    #ifdef CONFIG_VXWORKS
     set_ml_palette_if_dirty();
-    #elif defined(FEATURE_VRAM_RGBA)
-    // SJE FIXME I'm not using BMP_VRAM_START because
-    // we're using a generic malloc'd block so we can't.
-    // It's supposed to adjust where we look inside the 960x540 region to determine
-    // where we base our drawing from, for various bmp_* and other functions.
-    //
-    // It does this by direct inspection of a pointer value to make guesses
-    // about how far into another buffer it is.  Which is nasty, and incompatible
-    // with our malloc'd block in any case.
-    //
-    // With the marv structs having width and height fields, and a mode global
-    // being known (display_output_mode, fda0 on 200D), there must be a nicer way
-    // to dynamically determine the real offset without inspecting the pointer.
-    //
-    // For now, assume 720x480.
-    uint8_t *bmp_buf = bmp_vram_indexed + BMP_HDMI_OFFSET;
-    // bmp_vram_indexed is initialised by bmp_init()
-    #else
-    uint8_t *bmp_buf = bmp_idle_flag ? bmp_vram_idle() : bmp_vram_real();
     #endif
+    uint8_t * bmp_buf = bmp_idle_flag ? bmp_vram_idle() : bmp_vram_real();
 
     // if (PLAY_MODE) return UNCACHEABLE(bmp_buf);
     return bmp_buf;
@@ -175,168 +142,33 @@ void bmp_idle_copy(int direction, int fullsize)
     }
 }
 
-#ifdef FEATURE_VRAM_RGBA
-
-// XimrExe is used to trigger refreshing the OSD after the RGBA buffer
-// has been updated.  Should probably take a XimrContext *,
-// but this struct is not yet determined for 200D
-extern int XimrExe(void *);
-extern struct semaphore *winsys_sem;
-void refresh_yuv_from_rgb(void)
-{
-    // get our indexed buffer, convert into our real rgb buffer
-    uint8_t *b = bmp_vram_indexed;
-    uint32_t *rgb_data = NULL;
-
-    if (rgb_vram_info != NULL)
-        rgb_data = (uint32_t *)rgb_vram_info->bitmap_data;
-    else
-    {
-        DryosDebugMsg(0, 15, "rgb_vram_info was NULL, can't refresh OSD");
-        return;
-    }
-
-    //SJE FIXME benchmark this loop, it probably wants optimising
-    if(zebra_should_run()){
-        // always draw our stuff, including full alpha
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++){
-            *rgb_data++ = indexed2rgb(*b);
-            b++;
-        }
-    }
-    else{
-        for (size_t n = 0; n < BMP_VRAM_SIZE; n++)
-        {
-            // limited alpha support, if dest pixel would be full alpha,
-            // don't copy into dest.  This is COLOR_TRANSPARENT_BLACK in
-            // the LUT
-            uint32_t rgb = indexed2rgb(*b);
-            if ((rgb && 0xff000000) == 0x00000000)
-                rgb_data++;
-            else
-                *rgb_data++ = rgb;
-            b++;
-        }
-    }
-
-    // trigger Ximr to render to OSD from RGB buffer
-#ifdef CONFIG_DIGIC_VI
-    XimrExe((void *)XIMR_CONTEXT);
-#else
-    take_semaphore(winsys_sem, 0);
-    XimrExe((void *)XIMR_CONTEXT);
-    give_semaphore(winsys_sem);
-#endif
-    ml_refresh_display_needed = 0;
-}
-
-static void refresh_yuv_from_rgb_task(void *unused)
-{
-    #ifdef CONFIG_COMPOSITOR_DEDICATED_LAYER
-    DryosDebugMsg(0, 15, "Canon layer: 0x%08x", rgb_vram_info);
-    // Try to initialize our layer.
-    compositor_layer_setup();
-    DryosDebugMsg(0, 15, "Our layer: 0x%08x", rgb_vram_info);
-    #endif
-    TASK_LOOP
-    {
-        if (ml_refresh_display_needed && !ml_shutdown_requested && DISPLAY_IS_ON)
-        {
-            refresh_yuv_from_rgb();
-        }
-        msleep(50); // max 20 fps refresh
-    }
-}
-
-static uint32_t indexed2rgbLUT[RGB_LUT_SIZE] = {
-    0x00000000, 0xffebebeb, 0xff000000, 0x00000000, 0xffa33800, // 0
-    0xff20bbd9, 0xff009900, 0xff01ad01, 0xffea0001, 0xff0042d4, // 5
-    0xffb9bb8c, 0xff1c237e, 0xffc80000, 0xff0000a8, 0xffc9009a, // 10
-    0xffd1c000, 0xffe800e8, 0xffd95e4c, 0xff003e4b, 0xffe76d00, // 15
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 20
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 25
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, 0xffe800e8, // 30
-    0xffe800e8, 0xffe800e8, 0xffe800e8, 0xff090909, 0xff121212, // 35
-    0xff1b1b1b, 0xff242424, 0xff292929, 0xff2e2e2e, 0xff323232, // 40
-    0xff373737, 0xff3b3b3b, 0xff404040, 0xff454545, 0xff494949, // 45
-    0xff525252, 0xff5c5c5c, 0xff656565, 0xff6e6e6e, 0xff757575, // 50
-    0xff777777, 0xff7c7c7c, 0xff818181, 0xff858585, 0xff8a8a8a, // 55
-    0xff8e8e8e, 0xff939393, 0xff989898, 0xff9c9c9c, 0xffa1a1a1, // 60
-    0xffa5a5a5, 0xffaaaaaa, 0xffafafaf, 0xffb3b3b3, 0xffb8b8b8, // 65
-    0xffbcbcbc, 0xffc1c1c1, 0xffc6c6c6, 0xffcacaca, 0xffcfcfcf, // 70
-    0xffd3d3d3, 0xffd8d8d8, 0xffdddddd, 0xffe1e1e1, 0xffe6e6e6  // 75
-};
-
-
-
-#if 0
-static uint32_t indexed2uyvyLUT[COLOR_ORANGE + 1] = {
-    0x00800080, // COLOR_EMPTY (black, but we will apply alpha later)
-    0xff80ff80, // COLOR_WHITE
-    0x00800080, // COLOR_BLACK
-    0x00800080, // COLOR_TRANSPARENT_BLACK (SJE not handled correctly in bmp_putpixel_fast: should be 50% alpha maybe?)
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0xb200b2ab, // COLOR_CYAN
-    0x9515952b, // COLOR_GREEN1
-    0x7a457a51, // COLOR_GREEN2
-    0x4cff4c54, // COLOR_RED
-    0x8e758ebf, // COLOR_LIGHT_BLUE
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x1d6b1dff, // COLOR_BLUE
-    0x26c0266a, // COLOR_DARK_RED
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x69ea69d4, // COLOR_MAGENTA
-    0xe194e100, // COLOR_YELLOW
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x7f807f80, // unknown, default to 50% gray so it's probably visible
-    0x97c9972a  // COLOR_ORANGE
-};
-#endif
-
-
-uint32_t indexed2rgb(uint8_t color)
-{
-    if (color < RGB_LUT_SIZE)
-    {
-        return indexed2rgbLUT[color];
-    }
-    else
-    {
-        // return gray so it's probably visible
-        return indexed2rgbLUT[4];
-    }
-}
-
-#endif
-
-inline void bmp_putpixel_fast(uint8_t *const bvram, int x, int y, uint8_t color)
+inline void bmp_putpixel_fast(uint8_t * const bvram, int x, int y, uint8_t color)
 {
     #ifdef CONFIG_VXWORKS
-        char *p = (char*)&bvram[(x)/2 + (y)/2 * BMPPITCH];
-        SET_4BIT_PIXEL(p, x, color);
+    char* p = (char*)&bvram[(x)/2 + (y)/2 * BMPPITCH];
+    SET_4BIT_PIXEL(p, x, color);
     #else
-        bvram[x + y * BMPPITCH] = color;
-        #ifdef CONFIG_500D // err70?!
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-            asm("nop");
-         #endif
+    bvram[x + y * BMPPITCH] = color;
+    #endif
+
+     #ifdef CONFIG_500D // err70?!
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
+        asm("nop");
      #endif
-     ml_refresh_display_needed = 1;
 }
 
 
@@ -355,11 +187,10 @@ bmp_puts(
     *x = COERCE(*x, BMP_W_MINUS, BMP_W_PLUS);
     *y = COERCE(*y, BMP_H_MINUS, BMP_H_PLUS);
     
-    uint32_t fg_color = fontspec_fg(fontspec);
-    uint32_t bg_color = fontspec_bg(fontspec);
+    uint32_t    fg_color    = fontspec_fg( fontspec );
+    uint32_t    bg_color    = fontspec_bg( fontspec );
     
-    int len = rbf_draw_string((void*)font_dynamic[FONT_ID(fontspec)].bitmap,
-                              *x, *y, s, FONT(fontspec, fg_color, bg_color));
+    int len = rbf_draw_string((void*)font_dynamic[FONT_ID(fontspec)].bitmap, *x, *y, s, FONT(fontspec, fg_color, bg_color));
     *x += len;
     return len;
 }
@@ -526,30 +357,30 @@ bmp_hexdump(
 
 /** Fill a section of bitmap memory with solid color
  */
+
 void
 bmp_fill(
-    uint8_t color,
-    int x,
-    int y,
-    int w,
-    int h
+    uint8_t            color,
+    int        x,
+    int        y,
+    int        w,
+    int        h
 )
 {
     #ifdef CONFIG_VXWORKS
     color = D2V(color);
     #endif
 
-
     x = COERCE(x, BMP_W_MINUS, BMP_W_PLUS-1);
     y = COERCE(y, BMP_H_MINUS, BMP_H_PLUS-1);
     w = COERCE(w, 0, BMP_W_PLUS-x-1);
     h = COERCE(h, 0, BMP_H_PLUS-y-1);
 
-    uint8_t *b = bmp_vram();
+    uint8_t* b = bmp_vram();
 
     for (int i = y; i < y + h; i++)
     {
-        uint8_t *row = b + BM(x,i);
+        uint8_t* row = b + BM(x,i);
 #ifdef CONFIG_VXWORKS
         memset(row, color, w/2);
 #else
@@ -574,8 +405,8 @@ bmp_fill(
         asm("nop");
         asm("nop");
      #endif
+
     }
-    ml_refresh_display_needed = 1;
 }
 
 /** Load a BMP file into memory so that it can be drawn onscreen */
@@ -710,10 +541,6 @@ getfilesize_fail:
 void clrscr()
 {
     BMP_LOCK( bmp_fill( 0x0, BMP_W_MINUS, BMP_H_MINUS, BMP_TOTAL_WIDTH, BMP_TOTAL_HEIGHT ); )
-    #ifdef CONFIG_COMPOSITOR_DEDICATED_LAYER
-    // clear our layer
-    compositor_layer_clear();
-    #endif
 }
 
 // this is slow, but is good for a small number of pixels :)
@@ -1008,9 +835,9 @@ void bmp_draw_scaled_ex(struct bmp_file_t * bmp, int x0, int y0, int w, int h, u
             y = (ys-y0)*bmp->height/h;
             int ysc = COERCE(ys, BMP_H_MINUS, BMP_H_PLUS);
             #ifdef CONFIG_VXWORKS
-            uint8_t * const b_row = bvram + ysc/2 * BMPPITCH;
+            uint8_t * const b_row =              bvram + ysc/2 * BMPPITCH;
             #else
-            uint8_t * const b_row = bvram + ysc * BMPPITCH;
+            uint8_t * const b_row =              bvram + ysc * BMPPITCH;
             #endif
             uint8_t * const m_row = (uint8_t*)( mirror + ysc * BMPPITCH );
 
@@ -1096,26 +923,14 @@ static int bfnt_ok()
     int* codes = (int*) BFNT_CHAR_CODES;
     int i;
 
-    // for cameras that don't have built-in fonts, e.g. 200D,
-    // we return failure.  This means very early printing won't work.
-    // It's okay after RBF fonts are initialised.
-    //
-    // SJE FIXME - get this working properly, maybe embed
-    // a bitmap font into autoexec.bin?
-    if (BFNT_CHAR_CODES == 0)
-        return 0;
-
     for (i = 0; i < 20; i++)
-        if (codes[i] != 0x20+i)
-            return 0;
+        if (codes[i] != 0x20+i) return 0;
 
     int* off = (int*) BFNT_BITMAP_OFFSET;
-    if (off[0] != 0)
-        return 0;
+    if (off[0] != 0) return 0;
 
     for (i = 1; i < 20; i++)
-        if (off[i] <= off[i-1])
-            return 0;
+        if (off[i] <= off[i-1]) return 0;
 
     return 1;
 }
@@ -1149,29 +964,11 @@ static uint8_t* bfnt_find_char(int code)
 // returns width
 int bfnt_draw_char(int c, int px, int py, int fg, int bg)
 {
-    // It seems to me that c is used in three different ways.
-    //
-    // If a small positive integer, bfnt_find_char() uses
-    // it as an index into an array.
-    //
-    // If a negative integer, this signals it's one of the
-    // ML defined icon characters, in ico.c.
-    //
-    // Otherwise, it's implicitly a pointer address,
-    // which is searched for in some Canon struct, within
-    // bfnt_find_char().
-    //
-    // Digic >= 7 (maybe 6?) doesn't have Canon bitmap
-    // fonts, so on those platforms we can only handle
-    // the negative case.
-    //
-    // FIXME this is not the best way to communicate that intent,
-    // perhaps a different top-level function for drawing ML icons?
-
-    // if c < 0 we can always proceed as these are built-in via ico.c
-    if (c >= 0 && !bfnt_ok())
+    if (!bfnt_ok())
     {
+        #ifndef PYCPARSER   /* circular dependency */
         bmp_printf(FONT_SMALL, 0, 0, "font addr bad");
+        #endif
         return 0;
     }
 
@@ -1231,21 +1028,7 @@ int bfnt_char_get_width(int c)
 {
     if (!bfnt_ok())
     {
-        #ifdef FEATURE_VRAM_RGBA
-            /**
-             * kitor: This allows drawing ML icons, which are handled as BMP
-             * font chars with negative indexes. bfnt_find_char will fail when
-             * bfnt is not initialized.
-             */
-            if (c < 0) {
-                return 40;
-            }
-        #endif
-        // 200D and similar cams don't have built-in fonts,
-        // so we can't display an error using them...
-        // FIXME SJE this should probably be a guard based on a feature flag?
-        if (BFNT_CHAR_CODES != 0)
-            bmp_printf(FONT_SMALL, 0, 0, "font addr bad");
+        bmp_printf(FONT_SMALL, 0, 0, "font addr bad");
         return 0;
     }
 
@@ -1358,7 +1141,7 @@ void bmp_flip_ex(uint8_t* dst, uint8_t* src, uint8_t* mirror, int voffset)
 
 static void palette_disable(uint32_t disabled)
 {
-    #if defined(CONFIG_VXWORKS) || defined(FEATURE_VRAM_RGBA)
+    #ifdef CONFIG_VXWORKS
     return; // see set_ml_palette
     #endif
 
@@ -1451,18 +1234,7 @@ static void bmp_init(void* unused)
     bmp_lock = CreateRecursiveLock(0);
     ASSERT(bmp_lock)
     bvram_mirror_init();
-#ifdef FEATURE_VRAM_RGBA
-    bmp_vram_indexed = malloc(BMP_VRAM_SIZE);
-    // initialise to transparent, this allows us to draw over
-    // existing screen, rather than replace it, due to checks
-    // in refresh_yuv_from_rgb()
-    if (bmp_vram_indexed != NULL)
-        memset(bmp_vram_indexed, COLOR_TRANSPARENT_BLACK, BMP_VRAM_SIZE);
-    else
-        ASSERT(1);
-#endif
-
     _update_vram_params();
 }
 
-INIT_FUNC("bmp_init", bmp_init);
+INIT_FUNC(__FILE__, bmp_init);

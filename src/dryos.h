@@ -32,6 +32,7 @@
 
 #include "config-defines.h"
 #include "compiler.h"
+#include "mutex.h"
 #include "dialog.h"
 #include "consts.h"
 #include "gui.h"
@@ -56,43 +57,22 @@ extern float powf(float x, float y);
 
 /** Create a new user level task.
  *
- * Return value is ((int16_t unknown << 16)|(uint16_t task_id)) << 1
- * i.e., to extract out task_id you do: (val >> 1) & 0xffff
+ * The arguments are not really known yet.
  */
-extern uint32_t
+extern struct task *
 task_create(
-        const char *name,
-        uint32_t priority,
-        uint32_t stack_size,
-        void *entry,
-        void *arg
+        const char *            name,
+        uint32_t                priority,
+        uint32_t                stack_size,
+        void *                  entry,
+        void *                  arg
 );
-
-#ifdef CONFIG_DIGIC_78
-/** Create a new user level task on a given CPU.
- *
- * As task_create() but with additional arg for
- * selecting CPU
- *
- * Return value is ((int16_t unknown << 16)|(uint16_t task_id)) << 1
- * i.e., to extract out task_id you do: (val >> 1) & 0xffff
- */
-extern uint32_t
-task_create_ex(
-        const char *name,
-        uint32_t priority,
-        uint32_t stack_size,
-        void *entry,
-        void *arg,
-        int cpu_id
-);
-#endif
 
 extern void *AcquireRecursiveLock(void *lock, int n);
 extern void *CreateRecursiveLock(int n);
 extern void *ReleaseRecursiveLock(void *lock);
 
-struct semaphore;
+struct semaphore {;} CAPABILITY("mutex");
 
 extern struct semaphore *
 create_named_semaphore(
@@ -104,12 +84,12 @@ extern int
 take_semaphore(
         struct semaphore *      semaphore,
         int                     timeout_interval
-);
+) ACQUIRE(semaphore) NO_THREAD_SAFETY_ANALYSIS;
 
 extern int
 give_semaphore(
         struct semaphore *      semaphore
-);
+) RELEASE(semaphore) NO_THREAD_SAFETY_ANALYSIS;
 
 extern void
 bzero32(
@@ -136,15 +116,10 @@ struct tm {
         char    *tm_zone;       /* timezone abbreviation */
 };
 
-#if defined(CONFIG_DIGIC_78) || defined(CONFIG_5D4) // probably DryOS ver based really?
-void LoadCalendarFromRTC(struct tm *tm);
-extern void _LoadCalendarFromRTC(struct tm *tm, uint32_t a, uint32_t b, uint32_t c);
-#elif defined(CONFIG_DIGIC_VI)
-void LoadCalendarFromRTC(struct tm *tm);
-extern void _LoadCalendarFromRTC(struct tm *tm, uint32_t a, uint32_t c);
-#else
-extern void LoadCalendarFromRTC(struct tm *tm);
-#endif
+extern void
+LoadCalendarFromRTC(
+        struct tm *             tm
+);
 
 extern void DryosDebugMsg(int,int,const char *,...);
 
@@ -172,7 +147,7 @@ int rand (void);
 #endif
 //~ #define ASSERT(x) {}
 
-#define STR_APPEND(orig,fmt,...) ({ int _len = strlen(orig); snprintf(orig + _len, sizeof(orig) - _len, fmt, ## __VA_ARGS__); });
+#define STR_APPEND(orig,fmt,...) do { int _len = strlen(orig); snprintf(orig + _len, sizeof(orig) - _len, fmt, ## __VA_ARGS__); } while(0)
 
 #if defined(POSITION_INDEPENDENT)
 extern uint32_t _ml_base_address;

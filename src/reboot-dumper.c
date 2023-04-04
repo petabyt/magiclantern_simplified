@@ -2,37 +2,24 @@
  * ROM dumper using LED blinks
  */
 
-#include "compiler.h"
+#include "arm-mcr.h"
 #include "consts.h"
 
 /* we need this ASM block to be the first thing in the file */
 #pragma GCC optimize ("-fno-reorder-functions")
 
-/* polyglot startup code that works if loaded as either ARM or Thumb */
 asm(
     ".text\n"
     ".globl _start\n"
     "_start:\n"
 
-    ".code 16\n"
-    "NOP\n"                     /* as ARM, this is interpreted as: and r4, r1, r0, asr #13 (harmless) */
-    "B loaded_as_thumb\n"       /* as Thumb, this will eventually switch to ARM mode */
-
-    ".code 32\n"
-    "loaded_as_arm:\n"          /* you may insert ARM-specific code here */
-    "B load_ok\n"               /* this will jump over the Thumb code */
-
-    ".code 16\n"
-    "loaded_as_thumb:\n"        /* you may insert Thumb-specific code here */
-    "BLX load_ok\n"             /* LR doesn't matter much, as we'll never return to caller */
-
-    ".code 32\n"                /* from now on, we've got generic code for all platforms */
-    ".align 2\n"
-    "load_ok:\n"
+#if !defined(CONFIG_DIGIC_VII) && !defined(CONFIG_DIGIC_VIII)
     "MRS     R0, CPSR\n"
     "BIC     R0, R0, #0x3F\n"   // Clear I,F,T
     "ORR     R0, R0, #0xD3\n"   // Set I,T, M=10011 == supervisor
     "MSR     CPSR, R0\n"
+#endif
+
     "B       cstart\n"
 );
 
@@ -104,26 +91,20 @@ static void blink_all(int n)
  */
 static void guess_led(int n)
 {
-#if defined(CONFIG_DIGIC_VIII)
-    const int32_t  bits         = 7;
-    const uint32_t base_addr    = 0xD0130000;
-    const uint32_t led_on       = 0xD0002;
-    const uint32_t led_off      = 0xC0003;
-#endif
-#if defined(CONFIG_DIGIC_VII)
+#if defined(CONFIG_DIGIC_VII) || defined(CONFIG_DIGIC_VIII)
     const int32_t  bits         = 11;
+    const int32_t  N            = 1 << bits;
     const uint32_t base_addr    = 0xD2080000;
     const uint32_t led_on       = 0x20D0002;
     const uint32_t led_off      = 0x20C0003;
-#endif
-#if defined(CONFIG_DIGIC_VI)
+#else
     const int32_t  bits         = 11;
+    const int32_t  N            = 1 << bits;
     const uint32_t base_addr    = 0xD20B0000;
     const uint32_t led_on       = 0x4D0002;
     const uint32_t led_off      = 0x4C0003;
 #endif
 
-    const int32_t  N            = 1 << bits;
     volatile uint32_t * leds = (volatile uint32_t *) base_addr;
     
     while (1)
@@ -468,10 +449,10 @@ __attribute__ ((section(".dump_asm")))
 cstart( void )
 {
     /* Try guessing the LED address */
-    //~ guess_led(100);
+    guess_led(100);
     
     /* Try blinking the LED at the address defined in platform consts.h */
-    blink(10);
+    //~ blink(10);
     
     /* Try blinking a range of addresses, hoping the LED might be there */
     //~ blink_all(10);

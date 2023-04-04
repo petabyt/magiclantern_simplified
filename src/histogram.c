@@ -23,8 +23,8 @@
 extern int FAST get_y_skip_offset_for_overlays();
 extern int nondigic_zoom_overlay_enabled();
 
-
-CONFIG_INT( "hist.draw", hist_draw,  1 );
+/* starting point OFF */
+CONFIG_INT( "hist.draw", hist_draw,  0 );
 #ifdef FEATURE_RAW_HISTOGRAM
 CONFIG_INT( "hist.type", hist_type,  2 );
 #else
@@ -52,9 +52,17 @@ void FAST hist_build_raw()
 
     int step = lv ? 4 : 2;
 
+    /* mapping from 14-bit RAW to EV on the 12-bit histogram:
+     * above raw_info.white_level: last bin (HIST_WIDTH-1)
+     * 12 stops below that: first bin (0)
+     * raw_to_ev returns 0 at white level or above,
+     * and negative floating point values below */
     char r2ev[16384];
     for (int i = 0; i < 16384; i++)
+    {
         r2ev[i] = COERCE((raw_to_ev(i) + 12) * (HIST_WIDTH-1) / 12, 0, HIST_WIDTH-1);
+        qprintf("[HIST] RAW %d => %d (white=%d)\n", i, r2ev[i], raw_info.white_level);
+    }
 
     for (int i = os.y0; i < os.y_max; i += step)
     {

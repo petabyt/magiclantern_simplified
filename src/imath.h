@@ -4,9 +4,15 @@ int powi(int base, int power);
 int log2i(int x);
 int log10i(int x);
 
-// mod like in math... x mod n is from 0 to n-1
-//~ #define MOD(x,m) ((((int)x) % ((int)m) + ((int)m)) % ((int)m))
+#ifdef PYCPARSER
+    #define MOD(x,m) ((((int)x) % ((int)m) + ((int)m)) % ((int)m))
+    #define MIN(a,b) ((a) < (b) ? (a) : (b))
+    #define MAX(a,b) ((a) < (b) ? (a) : (b))
+    #define ABS(a)   ((a) >  0  ? (a) :-(a))
+    #define SGN(a)   ((a) >  0  ?  1  : (a) < 0 ? -1 : 0)
+#else
 
+// mod like in math... x mod n is from 0 to n-1
 #define MOD(x,m) \
    ({ int _x = (x); \
       int _m = (m); \
@@ -22,15 +28,10 @@ int log10i(int x);
       __typeof__ ((a)+(b)) _b = (b); \
      _a < _b ? _a : _b; })
 
-#define MIN_DUMB(a,b) ((a) < (b) ? (a) : (b))
-
 #define MAX(a,b) \
    ({ __typeof__ ((a)+(b)) _a = (a); \
        __typeof__ ((a)+(b)) _b = (b); \
      _a > _b ? _a : _b; })
-
-#define COERCE(x,lo,hi) MAX(MIN((x),(hi)),(lo))
-
 
 #define ABS(a) \
    ({ __typeof__ (a) _a = (a); \
@@ -39,6 +40,10 @@ int log10i(int x);
 #define SGN(a) \
    ({ __typeof__ (a) _a = (a); \
      _a > 0 ? 1 : _a < 0 ? -1 : 0; })
+
+#endif /* !PYCPARSER */
+
+#define COERCE(x,lo,hi) MAX(MIN((x),(hi)),(lo))
 
 #define SGNX(a) ((a) > 0 ? 1 : -1)
 
@@ -76,11 +81,3 @@ int log10i(int x);
 
 /* log2(x) * 100 */
 uint32_t log_length(int v);
-
-/* log2 on constants */
-/* https://stackoverflow.com/a/27593398 */
-#define LOG_1(n) (((n) >= 2) ? 1 : 0)
-#define LOG_2(n) (((n) >= 1<<2) ? (2 + LOG_1((n)>>2)) : LOG_1(n))
-#define LOG_4(n) (((n) >= 1<<4) ? (4 + LOG_2((n)>>4)) : LOG_2(n))
-#define LOG_8(n) (((n) >= 1<<8) ? (8 + LOG_4((n)>>8)) : LOG_4(n))
-#define LOG2(n)  (((n) >= 1<<16) ? (16 + LOG_8((n)>>16)) : LOG_8(n))

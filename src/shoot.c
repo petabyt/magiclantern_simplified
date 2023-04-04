@@ -61,9 +61,7 @@ static struct recursive_lock * shoot_task_rlock = NULL;
 
 static CONFIG_INT( "shoot.num", pics_to_take_at_once, 0);
 static CONFIG_INT( "shoot.af",  shoot_use_af, 0 );
-#if defined(FEATURE_SNAP_SIM) || defined(CONFIG_PROP_REQUEST_CHANGE)
 static int snap_sim = 0;
-#endif
 
 void move_lv_afframe(int dx, int dy);
 void display_trap_focus_info();
@@ -84,7 +82,11 @@ int display_idle()
 {
     extern thunk ShootOlcApp_handler;
     if (lv) return liveview_display_idle();
-    else return gui_state == GUISTATE_IDLE && !gui_menu_shown() &&
+    else return
+#ifndef CONFIG_EOSM
+    gui_state == GUISTATE_IDLE &&
+#endif
+    !gui_menu_shown() &&
         ((!DISPLAY_IS_ON && CURRENT_GUI_MODE == 0) || (intptr_t)get_current_dialog_handler() == (intptr_t)&ShootOlcApp_handler);
 }
 
@@ -139,10 +141,8 @@ static CONFIG_INT( "interval.scripts", interval_scripts, 0); //1 bash, 2 ms-dos,
 #define INTERVAL_TRIGGER_HALF_SHUTTER 1
 #define INTERVAL_TRIGGER_TAKE_PIC 2
 
-#ifdef FEATURE_INTERVALOMETER
 static int intervalometer_pictures_taken = 0;
 static int intervalometer_next_shot_time = 0;
-#endif
 
 
 #define TRAP_NONE    0
@@ -162,6 +162,9 @@ static CONFIG_INT( "flash_and_no_flash", flash_and_no_flash, 0);
 static CONFIG_INT( "lv_3rd_party_flash", lv_3rd_party_flash, 0);
 
 //~ static CONFIG_INT( "zoom.enable.face", zoom_enable_face, 0);
+#ifdef CONFIG_ZOOM_X1
+static CONFIG_INT( "zoom.disable.x1", zoom_disable_x1, 0);
+#endif
 static CONFIG_INT( "zoom.disable.x5", zoom_disable_x5, 0);
 static CONFIG_INT( "zoom.disable.x10", zoom_disable_x10, 0);
 static CONFIG_INT( "zoom.sharpen", zoom_sharpen, 0);
@@ -173,7 +176,7 @@ static CONFIG_INT( "zoom.focus_ring", zoom_focus_ring, 0);
 static CONFIG_INT_EX( "bulb.duration", bulb_duration, 5, bulb_duration_change);
 static CONFIG_INT   ( "bulb.timer", bulb_timer, 0);
 static CONFIG_INT   ( "bulb.display.mode", bulb_display_mode, 0);
-#elif defined(CONFIG_BULB)
+#else
 static int bulb_duration = 0;
 static int bulb_display_mode = 0;
 #endif
@@ -259,12 +262,10 @@ const char* format_time_hours_minutes_seconds(int seconds)
     return msg;
 }
 
-#ifdef CONFIG_BULB
 int get_bulb_shutter_raw_equiv()
 {
     return shutterf_to_raw(bulb_duration);
 }
-#endif
 
 static inline void seconds_clock_update();
 
@@ -284,9 +285,9 @@ int get_ms_clock()
     seconds_clock_update();
 
     /* derived from microseconds_clock */
-    int milliseconds_clock = microseconds_clock / 1000;  /* overflow after 24 days */
+    int miliseconds_clock = microseconds_clock / 1000;  /* overflow after 24 days */
 
-    return milliseconds_clock;
+    return miliseconds_clock;
 }
 
 uint64_t get_us_clock()
@@ -323,11 +324,11 @@ uint64_t get_us_clock()
  */
 int should_run_polling_action(int period_ms, int* last_updated_time)
 {
-    int milliseconds_clock = get_ms_clock();
+    int miliseconds_clock = get_ms_clock();
 
-    if (milliseconds_clock >= (*last_updated_time) + period_ms)
+    if (miliseconds_clock >= (*last_updated_time) + period_ms)
     {
-        *last_updated_time = milliseconds_clock;
+        *last_updated_time = miliseconds_clock;
         return 1;
     }
     return 0;
@@ -377,14 +378,11 @@ static void do_this_every_second() // called every second
     }
     #endif
 
-    // DIGIC 8+ uses different props
-    #if defined(CONFIG_DIGIC_45) || defined(CONFIG_DIGIC_VI) || defined(CONFIG_DIGIC_VII)
     /* update lens info outside LiveView */
     if (!lv && lens_info.lens_exists)
     {
         _prop_lv_lens_request_update();
     }
-    #endif
 }
 
 // called every 200ms or on request
@@ -685,11 +683,44 @@ static int zoom_was_triggered_by_halfshutter = 0;
 
 PROP_HANDLER(PROP_LV_DISPSIZE)
 {
-    /* note: 129 is a special screen before zooming in, on newer cameras */
-    ASSERT(buf[0] == 1 || buf[0]==129 || buf[0] == 5 || buf[0] == 10);
+    /* note: 0x81 is a special screen before zooming in, on newer cameras */
+    int zoom = buf[0];
+    int new_zoom = zoom;
+    
+    ASSERT(zoom == 1 || zoom == 0x81 || zoom == 5 || zoom == 10);
     zoom_sharpen_step();
     
-    if (buf[0] == 1) zoom_was_triggered_by_halfshutter = 0;
+    if (zoom == 1) zoom_was_triggered_by_halfshutter = 0;
+    
+#ifdef FEATURE_LV_ZOOM_SETTINGS
+#ifdef CONFIG_ZOOM_X1
+    /* FIXME: this duplicates functionality in handle_zoom_x5_x10
+     * that one works well, but only when triggered from the zoom button
+     * for touch-screen controls, this works reasonably well,
+     * but still stays in the disabled zoom mode for a split-second */
+    if (RECORDING) return;
+    
+    if (zoom_disable_x1 && zoom == 0x81)
+    {
+        new_zoom = (zoom_disable_x5 ? 10 : 5);
+    }
+    
+    if (zoom_disable_x5 && zoom == 5)
+    {
+        new_zoom = 10;
+    }
+    
+    if (zoom_disable_x10 && zoom == 10)
+    {
+        new_zoom = 1;
+    }
+    
+    if (new_zoom != zoom)
+    {
+        prop_request_change(PROP_LV_DISPSIZE, &new_zoom, 4);
+    }
+#endif
+#endif
 }
 #endif // FEATURE_LV_ZOOM_SETTINGS
 
@@ -816,6 +847,21 @@ int focus_box_get_raw_crop_offset(int* delta_x, int* delta_y)
     /* are we in x5/x10 zoom mode? */
     if (lv && lv_dispsize > 1)
     {
+        #ifdef CONFIG_5D3
+        /* might be generic, need to check */
+        uint32_t is_centered_zoom_mode = shamem_read(0xc0f383d4) & 
+                                         shamem_read(0xc0f383dc) & 
+                                         0x80008000;
+        if (is_centered_zoom_mode)
+        {
+            /* zoom mode patched by crop_rec; assume it's centered */
+            /* todo: get the zoom position directly from the above registers? */
+            *delta_x = 0;
+            *delta_y = 0;
+            return 1;
+        }
+        #endif
+
         /* find out where we are inside the raw frame */
         #ifdef CONFIG_DIGIC_V
         uint32_t pos1 = shamem_read(0xc0f09050);
@@ -1823,8 +1869,7 @@ void kelvin_toggle( void* priv, int sign )
     lens_set_kelvin(k);
 }
 
-//defined via PROP_INT(PROP_WB_KELVIN_PH, wb_kelvin_ph) in lens.c
-extern uint32_t wb_kelvin_ph;
+PROP_INT( PROP_WB_KELVIN_PH, wb_kelvin_ph );
 
 static MENU_UPDATE_FUNC(kelvin_display)
 {
@@ -1897,6 +1942,7 @@ void kelvin_n_gm_auto()
     {
         kelvin_auto_flag = 1;
         wbs_gm_auto_flag = 1;
+        if (raw_lv_is_enabled() && is_movie_mode()) wbs_gm_auto_flag = 0;
     }
 }
 
@@ -2415,7 +2461,53 @@ static void zoom_halfshutter_step()
     if (!lv) return;
     if (RECORDING) return;
     
-    if (zoom_halfshutter && is_manual_focus())
+    if (!is_manual_focus())
+    {
+        /* AF enabled? we should not interrupt it while autofocusing */
+        /* AF operation is announced via PROP_LV_FOCUS_STATUS, but the notification arrives too late */
+        static int prev_hs = 0;
+        static int press_timestamp = 0;
+        static int autofocused = 0;
+        int hs = get_halfshutter_pressed();
+        int hs_just_pressed = hs && !prev_hs;
+        prev_hs = hs;
+        
+        if (hs_just_pressed)
+        {
+            /* half-shutter pressed, expect AF to start soon */
+            press_timestamp = get_ms_clock();
+            return;
+        }
+        
+        if (lv_focus_status != 1)
+        {
+            /* autofocusing */
+            info_led_on();
+            autofocused = 1;
+            press_timestamp = 0;
+            return;
+        }
+        
+        if (press_timestamp && get_ms_clock() - press_timestamp < 700)
+        {
+            /* too early to tell whether AF started or not */
+            return;
+        }
+        
+        if (!hs)
+        {
+            info_led_off();
+            autofocused = 0;
+        }
+        
+        if (autofocused)
+        {
+            /* once it autofocused, we can no longer switch to x5 zoom (why, Canon?) */
+            return;
+        }
+    }
+    
+    if (zoom_halfshutter)
     {
         int hs = get_halfshutter_pressed();
         if (hs && lv_dispsize == 1 && display_idle())
@@ -4015,7 +4107,7 @@ struct menu_entry tweak_menus_shoot[] = {
                 .priv = &zoom_halfshutter,
                 .max = 1,
                 .help = "Enable zoom when you hold the shutter halfway pressed.",
-                .depends_on = DEP_MANUAL_FOCUS,
+                .help2 = "This feature only works as long as you don't trigger autofocus.",
             },
             {
                 .name = "Zoom with Focus Ring",
@@ -4060,6 +4152,93 @@ extern int digic_black_level;
 extern MENU_UPDATE_FUNC(digic_black_print);
 
 extern int digic_shadow_lift;
+
+static struct menu_entry expo_menusmovie[] = {
+#ifdef FEATURE_WHITE_BALANCE
+    {
+        .name = "white balance",
+        .update    = kelvin_wbs_display,
+        .select     = kelvin_toggle,
+        .help  = "Adjust Kelvin white balance and GM/BA WBShift.",
+        .help2 = "Advanced: WBShift, RGB multipliers, Push-button WB...",
+        .edit_mode = EM_SHOW_LIVEVIEW,
+        .submenu_width = 700,
+        .children =  (struct menu_entry[]) {
+            {
+                .name = "White Balance",
+                .update    = kelvin_display,
+                .select     = kelvin_toggle,
+                .help = "Adjust Kelvin white balance.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            {
+                .name = "WBShift G/M",
+                .update = wbs_gm_display,
+                .select = wbs_gm_toggle,
+                .min = -9,
+                .max = 9,
+                .icon_type = IT_PERCENT_OFF,
+                .help = "Green-Magenta white balance shift, for fluorescent lights.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            {
+                .name = "WBShift B/A",
+                .update = wbs_ba_display,
+                .select = wbs_ba_toggle,
+                .min = -9,
+                .max = 9,
+                .icon_type = IT_PERCENT_OFF,
+                .help = "Blue-Amber WBShift; 1 unit = 5 mireks on Kelvin axis.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            {
+                .name = "R multiplier",
+                .priv = (void *)(1),
+                .update = wb_custom_gain_display,
+                .select = wb_custom_gain_toggle,
+                .icon_type = IT_PERCENT,
+                .help = "RED channel multiplier, for custom white balance.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            {
+                .name = "G multiplier",
+                .priv = (void *)(2),
+                .update = wb_custom_gain_display,
+                .select = wb_custom_gain_toggle,
+                .icon_type = IT_PERCENT,
+                .help = "GREEN channel multiplier, for custom white balance.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            {
+                .name = "B multiplier",
+                .priv = (void *)(3),
+                .update = wb_custom_gain_display,
+                .select = wb_custom_gain_toggle,
+                .icon_type = IT_PERCENT,
+                .help = "BLUE channel multiplier, for custom white balance.",
+                .edit_mode = EM_SHOW_LIVEVIEW,
+            },
+            /*{
+             .name = "Auto adjust Kelvin",
+             .select = kelvin_auto,
+             .help = "LiveView: adjust Kelvin value once for the current scene."
+             },
+             {
+             .name = "Auto adjust Green-Magenta",
+             .select = wbs_gm_auto,
+             .help = "LiveView: adjust Green-Magenta once for the current scene."
+             },*/
+            {
+                .name = "Auto adjust Kelvin + G/M",
+                .select = kelvin_n_gm_auto,
+                .help = "LiveView: adjust Kelvin and G-M once (Push-button WB).",
+                .depends_on = DEP_LIVEVIEW,
+            },
+            MENU_EOL
+        },
+    },
+#endif
+};
 
 static struct menu_entry expo_menus[] = {
     #ifdef FEATURE_WHITE_BALANCE
@@ -4583,9 +4762,7 @@ int take_a_pic(int should_af)
         if (is_bulb_mode())
         {
             /* bulb mode? take a bulb exposure with bulb timer settings */
-            #ifdef CONFIG_BULB
             canceled = bulb_take_pic(bulb_duration * 1000);
-            #endif
         }
         else
         {
@@ -4706,14 +4883,14 @@ static int hdr_shutter_release(int ev_x8)
         ev_x8 = hdr_iso_shift(ev_x8);
 
         // apply EV correction in both "domains" (milliseconds and EV)
-#ifdef CONFIG_BULB
         int ms = raw2shutter_ms(lens_info.raw_shutter);
+        #ifdef CONFIG_BULB
         if(hdr_first_shot_bulb)
         {
             ms = bulb_duration*1000;
         }
+        #endif
         int msc = ms * roundf(1000.0f * powf(2, ev_x8 / 8.0f))/1000;
-#endif
         
         int rs = lens_info.raw_shutter;
         #ifdef CONFIG_BULB
@@ -4905,10 +5082,8 @@ static void hdr_auto_take_pics(int step_size, int skip0)
     // first exposure is always at 0 EV (and might be skipped)
     if (!skip0) hdr_shutter_release_then_check_for_under_or_over_exposure(0, &under, &over);
     else hdr_check_for_under_or_over_exposure(&under, &over);
-    if (!under) UNDER = 0;
-    if (!over) OVER = 0;
-    if (hdr_check_cancel(0))
-        goto end;
+    if (!under) UNDER = 0; if (!over) OVER = 0;
+    if (hdr_check_cancel(0)) goto end;
     
     switch (hdr_sequence)
     {
@@ -4919,8 +5094,7 @@ static void hdr_auto_take_pics(int step_size, int skip0)
                 if (OVER)
                 {
                     int ok = hdr_shutter_release_then_check_for_under_or_over_exposure(-step_size * i, &under, &over);
-                    if (!under) UNDER = 0;
-                    if (!over) OVER = 0;
+                    if (!under) UNDER = 0; if (!over) OVER = 0;
                     if (!ok) OVER = 0; // Canon limit reached, don't continue this sequence
                     if (hdr_check_cancel(0)) goto end;
                 }
@@ -4928,8 +5102,7 @@ static void hdr_auto_take_pics(int step_size, int skip0)
                 if (UNDER)
                 {
                     int ok = hdr_shutter_release_then_check_for_under_or_over_exposure(step_size * i, &under, &over);
-                    if (!under) UNDER = 0;
-                    if (!over) OVER = 0;
+                    if (!under) UNDER = 0; if (!over) OVER = 0;
                     if (!ok) UNDER = 0; // Canon limit reached, don't continue this sequence
                     if (hdr_check_cancel(0)) goto end;
                 }
@@ -4943,8 +5116,7 @@ static void hdr_auto_take_pics(int step_size, int skip0)
                 if (OVER)
                 {
                     int ok = hdr_shutter_release_then_check_for_under_or_over_exposure(-step_size * i, &under, &over);
-                    if (!under) UNDER = 0;
-                    if (!over) OVER = 0;
+                    if (!under) UNDER = 0; if (!over) OVER = 0;
                     if (!ok) OVER = 0;
                     if (hdr_check_cancel(0)) goto end;
                 }
@@ -4958,8 +5130,7 @@ static void hdr_auto_take_pics(int step_size, int skip0)
                 if (UNDER)
                 {
                     int ok = hdr_shutter_release_then_check_for_under_or_over_exposure(step_size * i, &under, &over);
-                    if (!under) UNDER = 0;
-                    if (!over) OVER = 0;
+                    if (!under) UNDER = 0; if (!over) OVER = 0;
                     if (!ok) UNDER = 0;
                     if (hdr_check_cancel(0)) goto end;
                 }
@@ -6034,6 +6205,8 @@ shoot_task( void* unused )
 
         // same for motion detect
         int mdx = motion_detect && (liveview_display_idle() || (lv && !DISPLAY_IS_ON)) && NOT_RECORDING && !gui_menu_shown() && !intervalometer_running;
+        #else
+        int mdx = 0;
         #endif
 
         #ifdef FEATURE_TRAP_FOCUS
@@ -6222,7 +6395,7 @@ shoot_task( void* unused )
             msleep(20);
             while (SECONDS_REMAINING > 1 && !ml_shutdown_requested)
             {
-                //int dt = get_interval_time();
+                int dt = get_interval_time();
                 /* allow other tasks to take pictures while we are sleeping */
                 ReleaseRecursiveLock(shoot_task_rlock);
                 msleep(200);
@@ -6345,7 +6518,7 @@ shoot_task( void* unused )
             #endif
 
 #ifdef FEATURE_AUDIO_REMOTE_SHOT
-#if defined(CONFIG_7D) || defined(CONFIG_6D) || defined(CONFIG_650D) || defined(CONFIG_700D) || defined(CONFIG_EOSM) || defined(CONFIG_100D)
+#if defined(CONFIG_7D) || defined(CONFIG_6D) || defined(CONFIG_650D) || defined(CONFIG_700D) || defined(CONFIG_EOSM) || defined(CONFIG_100D) || defined(CONFIG_70D)
             /* experimental for 7D now, has to be made generic */
             static int last_audio_release_running = 0;
             
@@ -6414,6 +6587,7 @@ static void shoot_init()
 
     menu_add( "Shoot", shoot_menus, COUNT(shoot_menus) );
     menu_add( "Expo", expo_menus, COUNT(expo_menus) );
+    menu_add( "Movie", expo_menusmovie, COUNT(expo_menusmovie) );
     
     //~ menu_add( "Tweaks", vid_menus, COUNT(vid_menus) );
 
@@ -6447,3 +6621,4 @@ void iso_refresh_display() // in photo mode
     }
 #endif
 }
+

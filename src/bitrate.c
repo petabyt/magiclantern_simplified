@@ -30,10 +30,8 @@ int hibr_should_record_wav() { return cfg_hibr_wav_record; }
 int hibr_should_record_wav() { return 0; }
 #endif
 
-#ifdef FEATURE_REC_INDICATOR
 static int time_indic_warning = 120;
 static unsigned int time_indic_font  = FONT(FONT_MED, COLOR_RED, COLOR_BLACK );
-#endif
 
 static int measured_bitrate = 0; // mbps
 //~ int free_space_32k = 0;
@@ -607,7 +605,7 @@ static struct lvinfo_item info_item[] = {
 static void bitrate_init()
 {
     lvinfo_add_item(info_item);
-    menu_add( "Movie", mov_menus, COUNT(mov_menus) );
+    menu_add( "Shoot", mov_menus, COUNT(mov_menus) );
     menu_add( "Movie Tweaks", mov_tweak_menus, COUNT(mov_tweak_menus) );
     #ifdef FEATURE_NITRATE_WAV_RECORD
     menu_add( "Audio", wav_menus, COUNT(wav_menus) );

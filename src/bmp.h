@@ -34,60 +34,12 @@
 
 extern int bmp_enabled;
 
-extern uint32_t ml_refresh_display_needed;
-
 /** Returns a pointer to the real BMP vram (or to idle BMP vram) */
 uint8_t * bmp_vram(void);
 
-#ifdef CONFIG_DIGIC_45
 /** Returns a pointer to the real BMP vram, as reported by Canon firmware.
  *  Not to be used directly - it may be somewhere in the middle of VRAM! */
-inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; }
-#endif
-
-#ifdef FEATURE_VRAM_RGBA
-
-/**
- * rgb_vram_info is used by source code elsewhere
- * _rgb_vram_info is used only by rgb_vram_preinit() to initialize pointer
- * controlled by us with Canon GUI layer on boot. This allows us to plug
- * arbitrary layer on runtime (eg with compositor enabled)
- */
-extern struct MARV *rgb_vram_info;
-#ifdef CONFIG_COMPOSITOR_XCM
-extern void* _pXCM;
-extern struct MARV *XCM_GetSourceSurface(void *pXCM, uint32_t layer_id);
-#endif
-/**
- * _rgb_vram_info stubs is not needed in CONFIG_COMPOSITOR_XCM,
- * but it breaks minimal builds that do not support compositor stuff.
- */
-extern struct MARV *_rgb_vram_info;
-inline uint8_t *rgb_vram_preinit()
-{
-#ifdef CONFIG_COMPOSITOR_XCM
-    // Get address of MARV for layer 0 from XCM
-    rgb_vram_info = XCM_GetSourceSurface(_pXCM, 0);
-#else
-    // Get address of MARV used by WINSYS to draw GUI
-    struct MARV *MARV = _rgb_vram_info;
-    if(MARV != NULL)
-        rgb_vram_info = _rgb_vram_info;
-#endif
-    return rgb_vram_info ? rgb_vram_info->bitmap_data : NULL;
-}
-
-void refresh_yuv_from_rgb(void);
-static void refresh_yuv_from_rgb_task(void *);
-uint32_t indexed2rgb(uint8_t color);
-
-#define RGB_LUT_SIZE 80
-inline uint8_t *bmp_vram_raw() {
-    struct MARV *marv = rgb_vram_info;
-    return marv ? marv->bitmap_data : NULL;
-}
-
-#endif
+inline uint8_t* bmp_vram_raw() { return bmp_vram_info[1].vram2; } 
 
 /**
  * The total BMP area starts at 0x***80008 or 0x***00008 and has 960x540 pixels.
@@ -117,63 +69,60 @@ inline uint8_t *bmp_vram_raw() {
 /** These are the hard limits - never ever write outside them! */
 #ifdef CONFIG_VXWORKS
 
-    #define BMP_W_PLUS 720
-    #define BMP_W_MINUS 0
-    #define BMP_H_PLUS 480
-    #define BMP_H_MINUS 0
+#define BMP_W_PLUS 720
+#define BMP_W_MINUS 0
+#define BMP_H_PLUS 480
+#define BMP_H_MINUS 0
 
-    #define BMPPITCH 360
-    #define BMP_VRAM_SIZE (360*240)
-    #define BMP_HDMI_OFFSET 0
+#define BMPPITCH 360
+#define BMP_VRAM_SIZE (360*240)
+#define BMP_HDMI_OFFSET 0
 
-    /** Returns a pointer to the real BMP vram */
-    #ifdef CONFIG_5DC
-        inline uint8_t* bmp_vram_real() { return (uint8_t*) MEM(0x29328); }
-    #elif defined(CONFIG_40D)
-        inline uint8_t* bmp_vram_real() { return (uint8_t*) MEM(0x1E330); }
-    #else
-    error
-    #endif
+/** Returns a pointer to the real BMP vram */
+#ifdef CONFIG_5DC
+inline uint8_t* bmp_vram_real() { return (uint8_t*) MEM(0x29328); }
+#elif defined(CONFIG_40D)
+inline uint8_t* bmp_vram_real() { return (uint8_t*) MEM(0x1E330); }
+#else
+error
+#endif
 
-    extern int bmp_vram_idle_ptr;
+extern int bmp_vram_idle_ptr;
 
-    /** Returns a pointer to idle BMP vram */
-    inline uint8_t* bmp_vram_idle()
-    {
-        return (uint8_t *)((uintptr_t)bmp_vram_idle_ptr);
-    }
+/** Returns a pointer to idle BMP vram */
+inline uint8_t* bmp_vram_idle()
+{
+	return (uint8_t *)((uintptr_t)bmp_vram_idle_ptr);
+}
 
-    inline uint8_t* BMP_VRAM_START(uint8_t* bmp_buf)
-    {
-        return bmp_buf;
-    }
+inline uint8_t* BMP_VRAM_START(uint8_t* bmp_buf) { return bmp_buf; }
 
-    #define BMP_VRAM_END(bmp_buf) (BMP_VRAM_START((uint8_t*)(bmp_buf)) + BMP_VRAM_SIZE)
+#define BMP_VRAM_END(bmp_buf) (BMP_VRAM_START((uint8_t*)(bmp_buf)) + BMP_VRAM_SIZE)
 
-    #define SET_4BIT_PIXEL(p, x, color) *(char*)(p) = ((x) % 2) ? ((*(char*)(p) & 0x0F) | (D2V(color) << 4)) : ((*(char*)(p) & 0xF0) | (D2V(color) & 0x0F))
+#define SET_4BIT_PIXEL(p, x, color) *(char*)(p) = ((x) % 2) ? ((*(char*)(p) & 0x0F) | (D2V(color) << 4)) : ((*(char*)(p) & 0xF0) | (D2V(color) & 0x0F))
 
 #else // dryos
-    // kitor: Still works for RGB buffers in 200D and EOSR
-    #define BMP_W_PLUS   840
-    #define BMP_W_MINUS -120
-    #define BMP_H_PLUS   510
-    #define BMP_H_MINUS -30
 
-    #define BMPPITCH 960
-    #define BMP_VRAM_SIZE (960*540)
+#define BMP_W_PLUS 840
+#define BMP_W_MINUS -120
+#define BMP_H_PLUS 510
+#define BMP_H_MINUS -30
 
-    #define BMP_HDMI_OFFSET ((-BMP_H_MINUS)*BMPPITCH + (-BMP_W_MINUS))
+#define BMPPITCH 960
+#define BMP_VRAM_SIZE (960*540)
 
-    // BMP_VRAM_START and BMP_VRAM_START are not generic - they only work on BMP buffer addresses returned by Canon firmware
-    uint8_t* BMP_VRAM_START(uint8_t* bmp_buf);
+#define BMP_HDMI_OFFSET ((-BMP_H_MINUS)*BMPPITCH + (-BMP_W_MINUS))
 
-    #define BMP_VRAM_END(bmp_buf) (BMP_VRAM_START((uint8_t*)(bmp_buf)) + BMP_VRAM_SIZE)
+// BMP_VRAM_START and BMP_VRAM_START are not generic - they only work on BMP buffer addresses returned by Canon firmware
+uint8_t* BMP_VRAM_START(uint8_t* bmp_buf);
 
-    /** Returns a pointer to the real BMP vram */
-    uint8_t* bmp_vram_real();
+#define BMP_VRAM_END(bmp_buf) (BMP_VRAM_START((uint8_t*)(bmp_buf)) + BMP_VRAM_SIZE)
 
-    /** Returns a pointer to idle BMP vram */
-    uint8_t* bmp_vram_idle();
+/** Returns a pointer to the real BMP vram */
+uint8_t* bmp_vram_real();
+
+/** Returns a pointer to idle BMP vram */
+uint8_t* bmp_vram_idle();
 #endif
 
 
@@ -369,11 +318,8 @@ void bmp_draw_rect_chamfer(int color, int x0, int y0, int w, int h, int a, int t
 #define COLOR_DARK_CYAN2_MOD 25
 //#define COLOR_DARK_YELLOW_MOD 26
 
-/*
- * to be used instead of background color, to draw only the foreground pixels
- * implemented for bfnt_draw_char (FONT_CANON and ICON_ML_*) and non-shadow
- * RBF fonts.
- */
+/* to be used instead of background color, to draw only the foreground pixels */
+/* currently implemented only for bfnt_draw_char (FONT_CANON and ICON_ML_*)   */
 #define NO_BG_ERASE 0xFF
 
 static inline uint32_t
@@ -486,8 +432,6 @@ int bfnt_draw_char(int c, int px, int py, int fg, int bg);
 /* return the width of a Canon built-in character */
 int bfnt_char_get_width(int c);
 
-// kitor TODO? if CONFIG_NO_BFNT and font was loaded, this should work anyway, right?
-#if !defined(CONFIG_DIGIC_678)
 // Canon built-in icons (CanonGothic font)
 #define ICON_TAB 0xa496ee
 #define ICON_PRINT 0xac96ee
@@ -527,7 +471,6 @@ int bfnt_char_get_width(int c);
 #define ICON_VIDEOCAM 0x9b9aee
 #define ICON_FLASH_A 0xa29aee
 #define ICON_FLASH_B 0xa59aee
-#endif
 
 #ifdef CONFIG_500D
 #undef ICON_VIDEOCAM

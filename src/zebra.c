@@ -60,7 +60,6 @@ extern uint32_t ml_refresh_display_needed;
 
 
 #define DIGIC_ZEBRA_REGISTER 0xC0F140cc
-#define FAST_ZEBRA_GRID_COLOR 4 // invisible diagonal grid for zebras; must be unused and only from 0-15
 
 // those colors will not be considered for histogram (so they should be very unlikely to appear in real situations)
 #define MZ_WHITE 0xFE12FE34
@@ -175,9 +174,7 @@ static CONFIG_INT( "transparent.overlay", transparent_overlay, 0);
 static CONFIG_INT( "transparent.overlay.x", transparent_overlay_offx, 0);
 static CONFIG_INT( "transparent.overlay.y", transparent_overlay_offy, 0);
 static CONFIG_INT( "transparent.overlay.autoupd", transparent_overlay_auto_update, 0);
-#ifdef FEATURE_GHOST_IMAGE
 static int transparent_overlay_hidden = 0;
-#endif
 
 static CONFIG_INT( "global.draw",   global_draw, 3 );
 
@@ -200,7 +197,8 @@ static CONFIG_INT( "zebra.raw.under", zebra_raw_underexposure,  1 );
 #define MZ_TAKEOVER_ZOOM_IN_BTN 3
 #define MZ_ALWAYS_ON            4
 static CONFIG_INT( "zoom.overlay", zoom_overlay_enabled, 0);
-static CONFIG_INT( "zoom.overlay.trig", zoom_overlay_trigger_mode, MZ_TAKEOVER_ZOOM_IN_BTN);
+/* starting point OFF EOSM */
+static CONFIG_INT( "zoom.overlay.trig", zoom_overlay_trigger_mode, 1);
 static CONFIG_INT( "zoom.overlay.size", zoom_overlay_size, 1);
 static CONFIG_INT( "zoom.overlay.x", zoom_overlay_x, 1);
 #ifdef CONFIG_5D3
@@ -387,7 +385,7 @@ uint8_t* get_bvram_mirror() { return bvram_mirror; }
 
 #include "cropmarks.c"
 
-PROP_HANDLER(PROP_LV_OUTPUT_TYPE)
+PROP_HANDLER(PROP_HOUTPUT_TYPE)
 {
     extern int ml_started;
     if (ml_started) redraw();
@@ -411,17 +409,8 @@ int get_global_draw() // menu setting, or off if
 {
 #ifdef FEATURE_GLOBAL_DRAW
     
-    #ifdef LV_OVERLAYS_MODE
-        /* kitor: As checked on R180:
-         *    0x0 - 1st overlays mode in LV (top+bottom)
-         *    0x1 - above + sides
-         *    0x2 - above + level
-         *    0x3 - clean overlays
-         *    0x6 - OlcApp? The screen like outside LV on DSLR
-         * EOSM and 5D2 already used this value in the past, and it was also "3"
-         * for clean overalys.
-         */
-        lv_disp_mode = LV_OVERLAYS_MODE != 3;
+    #ifdef LV_DISP_MODE
+        lv_disp_mode = LV_DISP_MODE;
     #endif
 
     extern int ml_started;
@@ -469,9 +458,7 @@ int get_global_draw_setting() // whatever is set in menu
 /** Store the waveform data for each of the WAVEFORM_WIDTH bins with
  * 128 levels
  */
-#ifdef FEATURE_WAVEFORM
 static uint8_t* waveform = 0;
-#endif
 #define WAVEFORM_UNSAFE(x,y) (waveform[(x) + (y) * WAVEFORM_WIDTH])
 #define WAVEFORM(x,y) (waveform[COERCE((x), 0, WAVEFORM_WIDTH-1) + COERCE((y), 0, WAVEFORM_HEIGHT-1) * WAVEFORM_WIDTH])
 
@@ -521,6 +508,7 @@ static void hist_add_pixel(uint32_t pixel, int Y)
 #ifdef FEATURE_WAVEFORM
 static inline void waveform_add_pixel(int x, int Y)
 {
+    if (!waveform) return;
     uint8_t* w = &WAVEFORM(((x-os.x0) * WAVEFORM_WIDTH) / os.x_ex, (Y * WAVEFORM_HEIGHT) >> 8);
     if ((*w) < 250) (*w)++;
 }
@@ -957,6 +945,8 @@ waveform_draw_image(
     unsigned        height
 )
 {
+    if (!waveform) return;
+    
     if (!PLAY_OR_QR_MODE)
     {
         if (!lv_luma_is_accurate()) return;
@@ -3376,7 +3366,7 @@ static void draw_zoom_overlay(int dirty)
 
     // select buffer where MZ should be written (camera-specific, guesswork)
     #if defined(CONFIG_5D2) || defined(CONFIG_EOSM) || defined(CONFIG_50D)
-    // FIXME: this method uses busy waiting, which causes high CPU usage and overheating when using Magic Zoom
+    //warning FIXME: this method uses busy waiting, which causes high CPU usage and overheating when using Magic Zoom
     void busy_vsync(int hd, int timeout_ms)
     {
         int timeout_us = timeout_ms * 1000;
@@ -3569,36 +3559,6 @@ static void draw_zoom_overlay(int dirty)
 
 int liveview_display_idle()
 {
-// Common conditions required across all generations
-    if( !DISPLAY_IS_ON
-        || !LV_NON_PAUSED
-        || !job_state_ready_to_take_pic()
-        || menu_active_and_not_hidden()
-        || mirror_down
-        || gui_state != GUISTATE_IDLE
-        || CURRENT_GUI_MODE > 3
-        #ifdef CURRENT_GUI_MODE_2
-        || CURRENT_GUI_MODE_2 > 3
-        #endif
-        )
-        return 0;
-
-#ifdef CONFIG_DIGIC_678
-/* For Digic 6 and up. Check if LiveViewApp dialog pointer is not null.
- * This is true only in LV.
- * Maybe this can be backported to below Digic 6 - needs research. */
-    extern struct dialog* LiveViewApp_dialog;
-    return (int)LiveViewApp_dialog;
-#else
-/* Original checks for Digic 5 and below. Check gui_task_list (one way linked
- * list of dialogs in z-order) to see if top dialog is one we expect in LV.
- *
- * Old method falls apart for new models, as those seem to split functionality
- * between multiple "apps" (already visible for 5d3/6d cases below)
- * and on D6+ models LvApp is not on list at all.
- *
- * As an ridiculous example, EOS R topmost dialog is one for touchbar input(!)
- */
     struct gui_task * current = gui_task_list.current;
     struct dialog * dialog = current->priv;
     extern thunk LiveViewApp_handler;
@@ -3617,23 +3577,34 @@ int liveview_display_idle()
     extern uintptr_t new_LiveViewApp_handler;
     #endif
 
-    return (
-            // dialog handlers that we consider as "LiveView"
-            dialog->handler == (dialog_handler_t) &LiveViewApp_handler
-            #if defined(CONFIG_LVAPP_HACK_RELOC)
-            || dialog->handler == (dialog_handler_t) new_LiveViewApp_handler
+    return
+        LV_NON_PAUSED && 
+        DISPLAY_IS_ON &&
+        !menu_active_and_not_hidden() && 
+        (// gui_menu_shown() || // force LiveView when menu is active, but hidden
+            ( gui_state == GUISTATE_IDLE && 
+              (dialog->handler == (dialog_handler_t) &LiveViewApp_handler 
+                  #if defined(CONFIG_LVAPP_HACK_RELOC)
+                  || dialog->handler == (dialog_handler_t) new_LiveViewApp_handler
+                  #endif
+                  #if defined(CONFIG_5D3)
+                  || dialog->handler == (dialog_handler_t) &LiveViewLevelApp_handler
+                  #endif
+                  #if defined(CONFIG_6D)
+                  || dialog->handler == (dialog_handler_t) &LiveViewWifiApp_handler
+                  #endif
+                  //~ for this, check value of get_current_dialog_handler()
+                  #if defined(CONFIG_DIGIC_V) && !defined(CONFIG_5D3)
+                  || dialog->handler == (dialog_handler_t) &LiveViewShutterApp_handler
+                  #endif
+              ) &&
+            CURRENT_GUI_MODE <= 3 && 
+            #ifdef CURRENT_GUI_MODE_2
+            CURRENT_GUI_MODE_2 <= 3 &&
             #endif
-            #if defined(CONFIG_5D3)
-            || dialog->handler == (dialog_handler_t) &LiveViewLevelApp_handler
-            #endif
-            #if defined(CONFIG_6D)
-            || dialog->handler == (dialog_handler_t) &LiveViewWifiApp_handler
-            #endif
-            #if defined(CONFIG_DIGIC_V) && !defined(CONFIG_5D3)
-            || dialog->handler == (dialog_handler_t) &LiveViewShutterApp_handler
-            #endif
+            job_state_ready_to_take_pic() &&
+            !mirror_down )
         );
-#endif
 }
 
 // when it's safe to draw zebras and other on-screen stuff
@@ -3761,9 +3732,7 @@ void draw_histogram_and_waveform(int allow_play)
     if (!liveview_display_idle() && !(PLAY_OR_QR_MODE && allow_play) && !gui_menu_shown()) return;
     if (is_zoom_mode_so_no_zebras()) return;
 
-#if defined(FEATURE_HISTOGRAM) || defined(FEATURE_WAVEFORM)
     int screen_layout = get_screen_layout();
-#endif
 
 #ifdef FEATURE_HISTOGRAM
     if( hist_draw && !WAVEFORM_FULLSCREEN)
@@ -3791,7 +3760,7 @@ void draw_histogram_and_waveform(int allow_play)
     if (is_zoom_mode_so_no_zebras()) return;
         
 #ifdef FEATURE_WAVEFORM
-    if( waveform_draw)
+    if(waveform_draw)
     {
         #ifdef CONFIG_4_3_SCREEN
         if (PLAY_OR_QR_MODE && WAVEFORM_FACTOR == 1)
@@ -3825,9 +3794,7 @@ clearscreen_task( void* unused )
 
     TASK_LOOP
     {
-#ifdef FEATURE_CLEAR_OVERLAYS
 clearscreen_loop:
-#endif
         msleep(100);
 
         //~ bmp_printf(FONT_MED, 100, 100, "%d %d %d", idle_countdown_display_dim, idle_countdown_display_off, idle_countdown_globaldraw);
@@ -3894,6 +3861,7 @@ clearscreen_loop:
         cropmark_step();
         #endif
     }
+
 }
 
 TASK_CREATE( "cls_task", clearscreen_task, 0, 0x1a, 0x2000 );
@@ -3909,7 +3877,7 @@ void _redraw_do()
     extern int ml_started;
     if (!ml_started) return;
     if (gui_menu_shown()) { menu_redraw(); return; }
-
+    
 BMP_LOCK (
 
 #ifdef CONFIG_VARIANGLE_DISPLAY
@@ -3924,32 +3892,6 @@ BMP_LOCK (
         display_dont_mirror_dirty = 0;
     }
 #endif
-
-#ifdef CONFIG_DIGIC_678
-/**
- * kitor: On D678 apps handlers that are in our interest either doesn't show up
- * on `gui_task_list` at all, or are buried down on the list (would require
- * list search via gui_task->next to find those that do).
- *
- * However I found out that when all apps of our interest are started, dialog
- * struct pointers are saved to other memory locations, and deleted on app close.
- *
- * We don't mess with any font buffers on D6+, as well as so far any flicker
- * kill feature is not implmented, so I skipped those code paths.
- *
- * TODO: Code should probably be expanded by other apps that we want to mess
- *       with (PlayMain, ShootOlcApp, PlayMovieGuideApp?)
- */
-    extern struct dialog* LiveViewApp_dialog;
-    if(LiveViewApp_dialog)
-    {
-        dialog_redraw(LiveViewApp_dialog); // try to redraw (this has semaphores for winsys)
-    }
-    else
-    {
-        clrscr(); // out of luck, fallback
-    }
-#else
 
     //~ if (disable_redraw) 
     //~ {
@@ -3988,7 +3930,6 @@ BMP_LOCK (
             clrscr(); // out of luck, fallback
         }
     }
-#endif //CONFIG_DIGIC_678
 )
 
     // ask other stuff to redraw
@@ -4137,7 +4078,11 @@ livev_hipriority_task( void* unused )
         if (raw && lv_dispsize == 1 && !is_movie_mode())
         {
             /* only raw zebras, raw histogram and raw spotmeter are working in LV raw mode */
+            /* 70D has problems with RAW zebras */
+            /* ToDo: Adjust with appropriate internals-config: CONFIG_NO_RAW_ZEBRAS */
+            #if !defined(CONFIG_70D)
             if (zebra_draw && raw_zebra_enable == 1) raw_needed = 1;        /* raw zebras: always */
+            #endif            
             if (hist_draw && RAW_HISTOGRAM_ENABLED) raw_needed = 1;          /* raw hisogram (any kind) */
             if (spotmeter_draw && spotmeter_formula == 3) raw_needed = 1;   /* spotmeter, units: raw */
         }
@@ -4158,7 +4103,7 @@ livev_hipriority_task( void* unused )
 
         int mz = should_draw_zoom_overlay();
 
-        lv_vsync(mz);
+        _lv_vsync(mz);
         guess_fastrefresh_direction();
 
         #ifdef FEATURE_MAGIC_ZOOM
@@ -4264,9 +4209,6 @@ static void loprio_sleep()
     while (is_mvr_buffer_almost_full()) msleep(100);
 }
 
-#if defined(LV_OVERLAYS_MODE) && defined(CONFIG_COMPOSITOR_DEDICATED_LAYER)
-uint32_t last_lv_overlays_mode = 0;
-#endif
 // Items which do not need a high FPS, but are CPU intensive
 // histogram, waveform...
 static void
@@ -4275,20 +4217,6 @@ livev_lopriority_task( void* unused )
     msleep(500);
     TASK_LOOP
     {
-        #if defined(LV_OVERLAYS_MODE) && defined(CONFIG_COMPOSITOR_DEDICATED_LAYER)
-        // Monitor overlays mode and clear screen if needed
-        // Existing code counts on Canon to overdraw screen.
-        if( (last_lv_overlays_mode == 3) &&
-            (LV_OVERLAYS_MODE != last_lv_overlays_mode ) &&
-            liveview_display_idle() )
-        {
-            //DryosDebugMsg(0, 15, "clear overlay %d", LV_OVERLAYS_MODE);
-            clrscr();
-        }
-        // update last overlays state
-        last_lv_overlays_mode = LV_OVERLAYS_MODE;
-        #endif
-
         #ifdef FEATURE_CROPMARKS
         #ifdef FEATURE_GHOST_IMAGE
         if (transparent_overlay_flag)

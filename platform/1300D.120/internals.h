@@ -1,8 +1,7 @@
 /**
- * Camera internals for 1300D 1.2.0
+ * Camera internals for 1300D 1.1.0
  */
 #define CONFIG_DIGIC_IV
-#define CONFIG_DIGIC_45
 
 /** Properties are persistent (saved in NVRAM) => a mistake can cause permanent damage. Undefine this for new ports. */
 /** The 1300D port is very early, so I think we should not enable properties. **/

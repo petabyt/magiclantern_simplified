@@ -35,6 +35,7 @@
 #include "zebra.h"
 #include "cropmarks.h"
 #include "battery.h"
+#include "lens.h"
 #include "shoot.h"
 #include "hdr.h"
 #include "fps.h"
@@ -45,9 +46,7 @@
 #include "powersave.h"
 
 // for movie logging
-#ifdef FEATURE_MOVIE_LOGGING
 static char* mvr_logfile_buffer = 0;
-#endif
 /* delay to be waited after mirror is locked */
 CONFIG_INT("mlu.lens.delay", lens_mlu_delay, 7);
 static void update_stuff();
@@ -62,7 +61,7 @@ static CONFIG_INT("movie.log", movie_log, 0);
 #ifdef CONFIG_FULLFRAME
 #define SENSORCROPFACTOR 10
 #define crop_info 0
-#elif defined(CONFIG_600D)
+#elif defined(CONFIG_600D) || defined(CONFIG_70D)
 static PROP_INT(PROP_DIGITAL_ZOOM_RATIO, digital_zoom_ratio);
 #define DIGITAL_ZOOM ((is_movie_mode() && video_mode_crop && video_mode_resolution == 0) ? digital_zoom_ratio : 100)
 #define SENSORCROPFACTOR (16 * DIGITAL_ZOOM / 100)
@@ -444,9 +443,13 @@ static int round_nicely(int x, int digits)
 const char * lens_format_shutter_reciprocal(int shutter_reciprocal_x1000, int digits)
 {
     static char shutter[32];
-    if (shutter_reciprocal_x1000 == 0)
+    if (shutter_reciprocal_x1000 <= 0)
     {
         snprintf(shutter, sizeof(shutter), "N/A");
+    }
+    else if (shutter_reciprocal_x1000 == INT_MAX)
+    {
+        snprintf(shutter, sizeof(shutter), "0.0");
     }
     else if (shutter_reciprocal_x1000 >= 10000000)
     {
@@ -578,6 +581,12 @@ static volatile int lv_focus_requests = 0;
 static volatile int lv_focus_done = 1;
 static volatile int lv_focus_error = 0;
 
+// 70D focus features don't play well with this and
+// soft limit is reached very quickly
+// see http://www.magiclantern.fm/forum/index.php?topic=14309.msg152551#msg152551
+// skipping the check helps but for e.g. focus stacking is still buggy
+// and takes 1 behind and 1 before all others afterwards are before at the same
+// position no matter what's set in menu
 PROP_HANDLER( PROP_LV_FOCUS_DONE )
 {
     /* turn off the LED we enabled in lens_focus */
@@ -1228,43 +1237,6 @@ PROP_HANDLER( PROP_MVR_REC_START )
     #endif
 }
 
-#ifdef CONFIG_DIGIC_VIII //confirmed R, RP, M50
-PROP_HANDLER( PROP_LENS_STATIC_DATA )
-{
-    ASSERT(len == sizeof(struct prop_lens_static_data));
-
-    const struct prop_lens_static_data * _static = (void*) buf;
-
-    strncpy( lens_info.name, _static->lens_name, sizeof(lens_info.name) );
-    lens_info.name[sizeof(lens_info.name) - 1] = '\0'; //null terminate
-
-    lens_info.lens_exists      = _static->attached;
-    // those are not RAW values! RAW are available in PROP_LENS_DYNAMIC_DATA
-    //lens_info.raw_aperture_min = _static->av_min_spd;
-    //lens_info.raw_aperture_max = _static->av_max_spd;
-    lens_info.lens_id          = _static->lens_id;
-    lens_info.lens_focal_min   = _static->fl_wide;
-    lens_info.lens_focal_max   = _static->fl_tele;
-    lens_info.lens_extender    = _static->extender_id[0];
-
-    lens_info.IS               = _static->lens_is_funct_exists;
-
-     //not sure?
-    lens_info.lens_version      = 0;
-    lens_info.lens_capabilities = _static->type; //Wrong, let's display type.
-
-    uint32_t lens_serial_lo =
-         _static->lens_serial[4]        |
-        (_static->lens_serial[3] << 8)  |
-        (_static->lens_serial[2] << 16) |
-        (_static->lens_serial[1] << 24) ;
-    uint32_t lens_serial_hi =
-        _static->lens_serial[0]         ;
-    lens_info.lens_serial =
-         (uint64_t) lens_serial_lo |
-        ((uint64_t) lens_serial_hi << 32);
-}
-#else
 
 PROP_HANDLER( PROP_LENS_NAME )
 {
@@ -1335,8 +1307,6 @@ PROP_HANDLER(PROP_LV_LENS_STABILIZE)
     //~ NotifyBox(2000, "%x ", buf[0]);
     lens_info.IS = (buf[0] & 0x000F0000) >> 16; // not sure, but lower word seems to be AF/MF status
 }
-
-#endif
 
 // it may be slow; if you need faster speed, replace this with a binary search or something better
 #define RAWVAL_FUNC(param) \
@@ -1665,7 +1635,7 @@ lens_set_kelvin(int k)
 
     prop_request_change(PROP_WB_MODE_LV, &mode, 4);
     prop_request_change(PROP_WB_KELVIN_LV, &k, 4);
-    prop_request_change(PROP_WB_MODE_PH, &mode, 4);
+//    prop_request_change(PROP_WB_MODE_PH, &mode, 4);
     prop_request_change(PROP_WB_KELVIN_PH, &k, 4);
     msleep(20);
 }
@@ -1730,12 +1700,28 @@ static void focus_ring_powersave_fix()
     }
 }
 
-void _lens_dynamic_data_post_update()
+/* only used for requesting a refresh of PROP_LV_LENS;
+ * raw data is model-dependent, do not use directly */
+static struct prop_lv_lens lv_lens_raw;
+
+PROP_HANDLER( PROP_LV_LENS )
 {
-    /* This code was previously a part of PROP_LV_LENS handler.
-     * With D67 requiring handling of PROP_LV_LENS_D67 and Digic 8 having
-     * completly new properties for that case, common code was moved here.
-     */
+    ASSERT(len <= sizeof(lv_lens_raw));
+    memcpy(&lv_lens_raw, buf, sizeof(lv_lens_raw));
+
+    const struct prop_lv_lens * const lv_lens = (void*) buf;
+    lens_info.focal_len     = bswap16( lv_lens->focal_len );
+    lens_info.focus_dist    = bswap16( lv_lens->focus_dist );
+    lens_info.focus_pos     = (int16_t) bswap16( lv_lens->focus_pos );
+    
+    if (lens_info.focal_len > 1000) // bogus values
+        lens_info.focal_len = 0;
+
+    //~ uint32_t lrswap = SWAP_ENDIAN(lv_lens->lens_rotation);
+    //~ uint32_t lsswap = SWAP_ENDIAN(lv_lens->lens_step);
+    //~ lens_info.lens_rotation = *((float*)&lrswap);
+    //~ lens_info.lens_step = *((float*)&lsswap);
+    
     static unsigned old_focus_dist = 0;
     static int      old_focus_pos = 0;
     static unsigned old_focal_len = 0;
@@ -1748,11 +1734,11 @@ void _lens_dynamic_data_post_update()
         #ifdef FEATURE_MAGIC_ZOOM
         if (get_zoom_overlay_trigger_by_focus_ring()) zoom_overlay_set_countdown(300);
         #endif
-
+        
         idle_wakeup_reset_counters(-11);
         lens_display_set_dirty();
         focus_ring_powersave_fix();
-
+        
         #ifdef FEATURE_LV_ZOOM_SETTINGS
         zoom_focus_ring_trigger();
         #endif
@@ -1763,104 +1749,19 @@ void _lens_dynamic_data_post_update()
     update_stuff();
 }
 
-#if !defined(CONFIG_DIGIC_VIII)
-// DIGIC8 uses PROP_LENS_DYNAMIC_DATA
-/* only used for requesting a refresh of PROP_LV_LENS;
- * raw data is model-dependent, do not use directly */
-static struct prop_lv_lens lv_lens_raw;
-
-PROP_HANDLER( PROP_LV_LENS )
-{
-    ASSERT(len <= sizeof(struct prop_lv_lens));
-    memcpy(&lv_lens_raw, buf, sizeof(struct prop_lv_lens));
-
-    const struct prop_lv_lens * const lv_lens = (void*) buf;
-    lens_info.focal_len     = bswap16( lv_lens->focal_len );
-    lens_info.focus_dist    = bswap16( lv_lens->focus_dist );
-    lens_info.focus_pos     = (int16_t) bswap16( lv_lens->focus_pos );
-
-    if (lens_info.focal_len > 1000) // bogus values
-        lens_info.focal_len = 0;
-
-    //~ uint32_t lrswap = SWAP_ENDIAN(lv_lens->lens_rotation);
-    //~ uint32_t lsswap = SWAP_ENDIAN(lv_lens->lens_step);
-    //~ lens_info.lens_rotation = *((float*)&lrswap);
-    //~ lens_info.lens_step = *((float*)&lsswap);
-
-    _lens_dynamic_data_post_update();
-}
-
-#if defined(CONFIG_DIGIC_VI) || defined(CONFIG_DIGIC_VII)
-PROP_HANDLER( PROP_LV_LENS_D67 )
-{
-    PROP_HANDLER_CALL(PROP_LV_LENS);
-}
-#endif
-
 /* called once per second */
 void _prop_lv_lens_request_update()
 {
-#if defined(CONFIG_DIGIC_VI) || defined(CONFIG_DIGIC_VII)
-    // this will make PROP_LV_LENS update itself outside LV mode on D67 models.
-    call("msub.lensdata");
-#elif defined(CONFIG_DIGIC_45)
     /* this property is normally active only in LiveView
      * however, the MPU can be tricked into sending its value outside LiveView as well
      * (Canon code also updates these values outside LiveView, when taking a picture)
      * the input data should not be used, but... better safe than sorry
-     * this should send MPU message 06 04 09 00 00
+     * this should send MPU message 06 04 09 00 00 
      * and the MPU is expected to reply with the complete property (much larger)
      * size is model-specific, but should not be larger than sizeof(lv_lens_raw)
      */
     prop_request_change(PROP_LV_LENS, &lv_lens_raw, 0);
-#endif
 }
-#endif
-
-#ifdef CONFIG_DIGIC_VIII
-PROP_HANDLER( PROP_LENS_DYNAMIC_DATA )
-{
-    if(len != sizeof(struct prop_lens_dynamic_data))
-        return;
-
-    const struct prop_lens_dynamic_data * const _dynamic = (void*) buf;
-    lens_info.focal_len        = _dynamic->FL;
-    lens_info.IS               = (_dynamic->st3 & 0xF); //last 8 bits looks like PROP_LV_LENS_STABILIZE equiv.
-
-    // This can be used to fake PROP_AF_MODE. Works only on lenses with physical AF/MF switch.
-    //af_mode = (_dynamic->st2 & 0x80) ? AF_MODE_MANUAL_FOCUS : AF_MODE_ONE_SHOT; // true -> MF, false -> AF
-
-    /*
-    // Disabled for now. Requires lens_info rewrite due to storage size change
-    lens_info.raw_aperture_min = _dynamic->AVO;
-    lens_info.raw_aperture_max = _dynamic->AVMAX;
-    if (lens_info.raw_aperture < lens_info.raw_aperture_min || lens_info.raw_aperture > lens_info.raw_aperture_max)
-    {
-        int raw = COERCE(lens_info.raw_aperture, lens_info.raw_aperture_min, lens_info.raw_aperture_max);
-        lensinfo_set_aperture(raw); // valid limits changed
-    } */
-
-    // PROP_LENS_DYNAMIC_DATA provides focus near and focus far values.
-    // We compute focus dist using harmonic mean ( 2*Dn*Df / (Dn + Df) )
-    lens_info.focus_dist       = (2*_dynamic->focus_near*_dynamic->focus_far) / (_dynamic->focus_near + _dynamic->focus_far);
-
-    // We can get this data for free, do we need to compute it in our code?
-    //lens_info.dof_near         = _dynamic->focus_near * 10;
-    //lens_info.dof_far          = _dynamic->focus_far * 10;
-
-    if(_dynamic->focusPos == 0xFFFF)
-    {
-        // lens doesn't report focusPos, work around by using focus distance instead.
-        lens_info.focus_pos     = lens_info.focus_dist;
-    }
-    else
-    {
-        lens_info.focus_pos     = _dynamic->focusPos;
-    }
-
-    _lens_dynamic_data_post_update();
-}
-#endif
 
 /**
  * This tells whether the camera is ready to take a picture (or not)
@@ -2502,7 +2403,6 @@ static void bv_expsim_shift()
         
         if (is_bulb_mode()) // try to perform expsim in bulb mode, based on bulb timer setting
         {
-            #ifdef CONFIG_BULB
             int tv = get_bulb_shutter_raw_equiv() + tv_fps_shift;
             if (tv < SHUTTER_1_30)
             {
@@ -2517,7 +2417,6 @@ static void bv_expsim_shift()
                 bv_apply_iso(bv_iso);
                 return;
             }
-            #endif
         }
         else
         {
@@ -2762,47 +2661,17 @@ static LVINFO_UPDATE_FUNC(picq_update)
 
     if (!is_movie_mode())
     {
-#ifdef CONFIG_DIGIC_VIII
-/* via R.180, confirmed RP.160; M50 and 850D have the same set of modes:
- * L        03030100   .XX .... ..XX .... ...X .... ....
- * l        03020100   .XX .... ..X. .... ...X .... ....
- * M        03030101   .XX .... ..XX .... ...X .... ...X
- * m        03020101   .XX .... ..X. .... ...X .... ...X
- * S1       0303010E   .XX .... ..XX .... ...X .... XXX.
- * s1       0302010E   .XX .... ..X. .... ...X .... XXX.
- * S2       0303010F   .XX .... ..XX .... ...X .... XXXX
- * CRAW     03030600   .XX .... ..XX .... .XX. .... ....
- * RAW      04030600   X.. .... ..XX .... .XX. .... ....
- * via SX740.110, there's only one S mode:
- * S        03030102   .XX .... ..XX .... ...X .... ..X.
- * Some combinations:
- *  RAW + L 04030700   X.. .... ..XX .... .XXX .... ....
- *  RAW + l 04020700   X.. .... ..X. .... .XXX .... ....
- * CRAW + L 03030700   .XX .... ..XX .... .XXX .... ....
- * CRAW + l 03020700   .XX .... ..X. .... .XXX .... ....
- */
-        int raw = pic_quality & 0x600; // 3 for *RAW, 0 - not RAW
-        int jpg = (pic_quality & 0x100);
-        int rawsize = pic_quality >> 26; // if raw: 0 CRAW, 1 RAW
-        int jpegtype = (pic_quality >> 16) & 0xF;
-        int jpegsize = pic_quality & 0xFF;
-#else
         int raw = pic_quality & 0x60000;
         int jpg = pic_quality & 0x10000;
         int rawsize = pic_quality & 0xF;
         int jpegtype = pic_quality >> 24;
         int jpegsize = (pic_quality >> 8) & 0xFF;
-#endif //CONFIG_DIGIC_VIII
         snprintf(buffer, sizeof(buffer), "%s%s%s",
-#ifdef CONFIG_DIGIC_VIII
-            raw ? (rawsize ? "RAW" : "CRAW") : "",  // just two options on D8
-#else
             rawsize == 1 ? "mRAW" : rawsize == 2 ? "sRAW" : rawsize == 7 ? "sRAW1" : rawsize == 8 ? "sRAW2" : raw ? "RAW" : "",
-#endif
             jpg == 0 ? "" : (raw ? "+" : "JPG-"),
             jpg == 0 ? "" : (
-                jpegsize == 0 ? (jpegtype == 3 ? "L" : "l") :
-                jpegsize == 1 ? (jpegtype == 3 ? "M" : "m") :
+                jpegsize == 0 ? (jpegtype == 3 ? "L" : "l") : 
+                jpegsize == 1 ? (jpegtype == 3 ? "M" : "m") : 
                 jpegsize == 2 ? (jpegtype == 3 ? "S" : "s") :
                 jpegsize == 0x0e ? (jpegtype == 3 ? "S1" : "s1") :
                 jpegsize == 0x0f ? (jpegtype == 3 ? "S2" : "s2") :
@@ -2820,7 +2689,7 @@ static LVINFO_UPDATE_FUNC(picq_update)
         if (is_movie_mode())
         {
             /* todo: icon? */
-            snprintf(buffer, sizeof(buffer), "RAW");
+            snprintf(buffer, sizeof(buffer), "Immortal");
         }
         item->color_fg = raw_lv == 1 ? COLOR_GREEN1 : COLOR_GRAY(20);
     }
@@ -2898,7 +2767,8 @@ static LVINFO_UPDATE_FUNC(fps_update)
 
     if (is_movie_mode())
     {
-        int f = fps_get_current_x1000();
+        int f = shamem_read(0xc0f0501c) == 0x20 ? 400: shamem_read(0xc0f0501c) == 0x21 ? 1000: shamem_read(0xc0f0501c) == 0x22 ? 2000: 
+			    shamem_read(0xc0f0501c) == 0x23 ? 3000: shamem_read(0xc0f0501c) == 0x24 ? 4000: shamem_read(0xc0f0501c) == 0x25 ? 5000: fps_get_current_x1000();
         snprintf(buffer, sizeof(buffer), 
             "%2d.%03d", 
             f / 1000, f % 1000
@@ -2927,12 +2797,6 @@ static LVINFO_UPDATE_FUNC(free_space_update)
         fsg,
         fsgf
     );
-}
-
-static LVINFO_UPDATE_FUNC(mode_update)
-{
-    LVINFO_BUFFER(8);
-    snprintf(buffer, sizeof(buffer), get_shootmode_name_short(shooting_mode_custom));
 }
 
 static LVINFO_UPDATE_FUNC(focal_len_update)
@@ -3069,14 +2933,51 @@ static LVINFO_UPDATE_FUNC(iso_update)
         }
         
         int iso = raw2iso(iso_equiv_raw);
-        
-        if (iso > 1600)
-        {
-            /* think twice before increasing ISO above this value */
-            item->color_fg = COLOR_ORANGE;
-        }
-        
-        STR_APPEND(buffer, "%d", iso);
+    
+/* restricting autoiso for eom, 100D and 5D3. Switch in crop_rec.c */
+		if (shamem_read(0xC0F0b12c) == 0x7 && lens_info.raw_iso_auto > 0x5d) 
+		{
+			STR_APPEND(buffer, "400+");
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x8 && lens_info.raw_iso_auto > 0x63) 
+		{
+			STR_APPEND(buffer, "800+");
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x9 && lens_info.raw_iso_auto > 0x6d) 
+		{
+			STR_APPEND(buffer, "1600+");
+		}
+
+/* isoclimb preset crop_rec.c */
+		else if (shamem_read(0xC0F0b12c) == 0x11) 
+		{
+			STR_APPEND(buffer, "100"); 
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x12) 
+		{
+			STR_APPEND(buffer, "200"); 
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x13) 
+		{	
+			STR_APPEND(buffer, "400"); 
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x14) 
+		{
+			STR_APPEND(buffer, "800");  
+		}
+		else if (shamem_read(0xC0F0b12c) == 0x15) 
+		{
+			STR_APPEND(buffer, "1600"); 
+    		}	
+		else if (shamem_read(0xC0F0b12c) == 0x16) 
+		{	
+			STR_APPEND(buffer, "3200"); 
+		}
+		else
+		{
+			STR_APPEND(buffer, "%d", iso);
+		}
+
     }
     else /* photo mode */
     {
@@ -3288,14 +3189,6 @@ static struct lvinfo_item info_items[] = {
         .name = "Free space",
         .which_bar = LV_TOP_BAR_ONLY,
         .update = free_space_update,
-    },
-    /* Bottom bar */
-    {
-        .name = "Mode",
-        .which_bar = LV_BOTTOM_BAR_ONLY,
-        .update = mode_update,
-        .priority = 1,
-        .preferred_position = -128,
     },
     {
         .name = "Focal len",

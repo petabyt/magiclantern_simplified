@@ -34,13 +34,10 @@
 #include "consts.h"
 #include "tskmon.h"
 
+
 #include "boot-hack.h"
 #include "ml-cbr.h"
 #include "backtrace.h"
-
-extern int uart_printf(const char * fmt, ...);
-
-extern void platform_post_init();
 
 #if defined(FEATURE_GPS_TWEAKS)
 #include "gps.h"
@@ -50,9 +47,25 @@ extern void platform_post_init();
 #include "fw-signature.h"
 #endif
 
-#if defined(CONFIG_MMU_EARLY_REMAP) || defined(CONFIG_MMU_REMAP)
-#include "patch.h"
-#endif
+enum boot_drive { DRIVE_CF, DRIVE_SD };
+static int (*boot_open_write)(int drive, const char * filename, void * addr, uint32_t size) = 0;
+static int ml_loaded_as_thumb = 0;
+static void fail()
+{
+    qprintf("\n");
+    qprint(" You may now remove the battery.\n");
+
+    while (1)
+    {
+        //blink(20);
+	info_led_blink(3, 500, 500);
+    }
+}
+uint32_t is_digic78()
+{
+    /* either DIGIC 7 or 8 */
+    return ml_loaded_as_thumb;
+}
 
 static int _hold_your_horses = 1; // 0 after config is read
 int ml_started = 0; // 1 after ML is fully loaded
@@ -198,8 +211,12 @@ void _disable_ml_startup() {
 }
 
 #if defined(CONFIG_AUTOBACKUP_ROM)
-
-#define BACKUP_BLOCKSIZE 0x00100000
+static int normal_font = FONT_LARGE;
+static int error_font = FONT(FONT_LARGE, COLOR_RED, COLOR_BLACK);
+static int warning_font = FONT(FONT_LARGE, COLOR_YELLOW, COLOR_BLACK);
+static int y = 200;
+static int FH = 50; /* font height */
+#define BACKUP_BLOCKSIZE 0x00010000
 
 static void backup_region(char *file, uint32_t base, uint32_t length)
 {
@@ -244,113 +261,76 @@ static void backup_region(char *file, uint32_t base, uint32_t length)
 
 static void backup_rom_task()
 {
-    backup_region("ML/LOGS/ROM1.BIN", 0xF8000000, 0x01000000);
-    backup_region("ML/LOGS/ROM0.BIN", 0xF0000000, 0x01000000);
+    bmp_printf(FONT_LARGE, 50, 200, "Backup ROM1...");
+    backup_region("ML/LOGS/ROM1.BIN", 0x01000000, 0x02000000);
+    bmp_printf(FONT_LARGE, 50, 200, "Backup ROM0...");
+    backup_region("ML/LOGS/ROM0.BIN", 0x01000000, 0x02000000);
+    bmp_printf(FONT_LARGE, 50, 200, "DONE!              ");
 }
 #endif
 
 #ifdef CONFIG_HELLO_WORLD
+static int normal_font = FONT_LARGE;
+static int error_font = FONT(FONT_LARGE, COLOR_RED, COLOR_BLACK);
+static int warning_font = FONT(FONT_LARGE, COLOR_YELLOW, COLOR_BLACK);
+static int y = 200;
+static int FH = 50; /* font height */
+#define BACKUP_BLOCKSIZE 0x00010000
 
-static void draw_test_pattern(int colour)
+static void backup_region(char *file, uint32_t base, uint32_t length)
 {
-    uint8_t *b = bmp_vram();
+    FILE *handle = NULL;
+    uint32_t size = 0;
+    uint32_t pos = 0;
+    
+    /* already backed up that region? */
+    if((FIO_GetFileSize( file, &size ) == 0) && (size == length) )
+    {
+        return;
+    }
+    
+    /* no, create file and store data */
+    void* buf = malloc(BACKUP_BLOCKSIZE);
+    if (!buf) return;
 
-    // draw a rectangle on the exact visible border
-    for (int y=30; y < 510; y++)
+    handle = FIO_CreateFile(file);
+    if (handle)
     {
-        bmp_putpixel_fast(b, 120, y, colour);
-        bmp_putpixel_fast(b, 839, y, colour);
+      while(pos < length)
+      {
+         uint32_t blocksize = BACKUP_BLOCKSIZE;
+        
+          if(length - pos < blocksize)
+          {
+              blocksize = length - pos;
+          }
+          
+          /* copy to RAM before saving, because ROM is slow and may interfere with LiveView */
+          memcpy(buf, &((uint8_t*)base)[pos], blocksize);
+          
+          FIO_WriteFile(handle, buf, blocksize);
+          pos += blocksize;
+      }
+      FIO_CloseFile(handle);
     }
-    for (int x=120; x < 840; x++)
-    {
-        bmp_putpixel_fast(b, x, 30, colour);
-        bmp_putpixel_fast(b, x, 509, colour);
-    }
+    
+    free(buf);
 }
 
-#ifdef FEATURE_VRAM_RGBA
-
-/** kitor: This aint pretty, but we selectively call bmp init functions
- *  and run required tasks. Other solution would be to have function in bmp.c
- *  to break static scope.
- *
- * We should be safe to run them as:
- * - we are already past _mem_init()
- * - if this code runs, we successfully started ml_init task */
-static void init_bmp_indexed()
-{
-    //first call bmp_init
-    extern struct task_create _init_funcs_start[];
-    extern struct task_create _init_funcs_end[];
-    struct task_create * init_func = _init_funcs_start;
-
-    for( ; init_func < _init_funcs_end ; init_func++ )
-    {
-        if(strcmp(init_func->name, "bmp_init") == 0)
-        {
-            thunk entry = (thunk) init_func->entry;
-            entry();
-            break;
-        }
-    }
-
-    //then start redraw_task
-    extern struct task_create _tasks_start[];
-    extern struct task_create _tasks_end[];
-    struct task_create * task = _tasks_start;
-
-    for( ; task < _tasks_end ; task++ )
-    {
-        if(strcmp(task->name, "redraw_task") == 0)
-        {
-            task_create(
-                task->name,
-                task->priority,
-                task->stack_size,
-                task->entry,
-                task->arg
-            );
-            break;
-        }
-    }
-}
-#endif
 
 static void hello_world()
 {
-    int sig = compute_signature((uint32_t*)SIG_START, 0x10000);
-
-    #ifdef FEATURE_VRAM_RGBA
-    //kitor: see comment on init_bmp_indexed() above
-    init_bmp_indexed();
-    #endif
-
-    // wait for GUI to be up
-    //kitor: we already did it once in boot_post_init_task() ?!
-    while (!bmp_vram_raw())
-        msleep(100);
-
-    //DryosDebugMsg(0, 15, "==== HELLO WORLD ====");
-    int colour = 4;
+    backup_region("ML/LOGS/ROM_REG.BIN", 0xfeb40000, 0x00010000);
+    qprintf("HELLO WORLD\n");
+    uint32_t sig = compute_signature((void*)SIG_START, SIG_LEN);
     while(1)
     {
-        bmp_printf(FONT_LARGE, 140, 50, "Hello, World!");
-        bmp_printf(FONT_LARGE, 140, 400, "firmware signature = 0x%x", sig);
-
-        if (colour == 15)
-            colour = 4;
-        else
-            colour++;
-        //DryosDebugMsg(0, 15, "display mode: %d", display_output_mode);
-        DryosDebugMsg(0, 15, "colour: %d", colour);
-        draw_test_pattern(colour);
-
-        bmp_fill(6, 140, 200, 40, 1);
-
-        ml_refresh_display_needed = 1;
-        msleep(200);
-        //info_led_blink(1, 500, 500);
+        bmp_printf(FONT_LARGE, 50, 50, "Hello, World!");
+        bmp_printf(FONT_LARGE, 50, 400, "firmware signature = 0x%x", sig);
+        info_led_blink(1, 500, 500);
+        qprintf("firmware signature = 0x%x\n", sig);
     }
+
 }
 #endif
 
@@ -377,12 +357,12 @@ static void dumper_bootflag()
     // do not try to enable bootflag in LiveView, or during sensor cleaning (it will fail while writing to ROM)
     // no check is done here, other than a large delay and doing this while in Canon menu
     // todo: check whether the issue is still present with interrupts disabled
-    bmp_printf(FONT_LARGE, 50, 200, "EnableBootDisk...");
+    bmp_printf(FONT_LARGE, 50, 300, "EnableBootDisk...");
     uint32_t old = cli();
     call("EnableBootDisk");
     sei(old);
 
-    bmp_printf(FONT_LARGE, 50, 250, ":)");
+    bmp_printf(FONT_LARGE, 50, 350, ":)");
 }
 #endif
 
@@ -392,10 +372,7 @@ static void led_fade(int arg1, void * on)
     static int k = 16000;
     if (k > 0)
     {
-        if (on)
-            _card_led_on();
-        else
-            _card_led_off();
+        if (on) _card_led_on(); else _card_led_off();
         int next_delay = (on ? k : 16000 - k);   /* cycle: 16000 us => 62.5 Hz */
         SetHPTimerNextTick(arg1, next_delay, led_fade, led_fade, (void *) !on);
         k -= MAX(16, k/32);  /* adjust fading speed and shape here */
@@ -421,7 +398,7 @@ static void my_big_init_task()
         /* (pressing SET after this point will be ignored) */
         magic_off = 1;
 
-    #if defined(CONFIG_ADDITIONAL_VERSION)
+    #if !defined(CONFIG_NO_ADDITIONAL_VERSION)
         /* fixme: enable on all models */
         extern char additional_version[];
         additional_version[0] = '-';
@@ -464,22 +441,11 @@ static void my_big_init_task()
    
     call("DisablePowerSave");
     _ml_cbr_init();
-#ifdef CONFIG_MMU_REMAP
-    // we must do this before any code wants to apply patches,
-    // notably, modules do this
-    if (mmu_init() < 0)
-        DryosDebugMsg(0, 15, "ERROR doing mmu_init() in late context");
-#endif
     menu_init();
     debug_init();
-    call_init_funcs(); // among other things, this initialises modules
+    call_init_funcs();
     msleep(200); // leave some time for property handlers to run
 
-    /**
-     * kitor FIXME: disabling rom dump for D678 as it uses different addresses
-     * and offsets. I feel those should be per generation, or maybe per camera
-     * as R has different rom size than RP in same gen...
-     */
     #if defined(CONFIG_AUTOBACKUP_ROM)
     /* backup ROM first time to be prepared if anything goes wrong. choose low prio */
     /* On 5D3, this needs to run after init functions (after card tests) */
@@ -522,7 +488,17 @@ static void my_big_init_task()
     
     msleep(500);
     ml_started = 1;
+
+//    extern void run_patch_test(void);
+//    run_patch_test();
+
 }
+
+
+
+static uint32_t jump;
+
+
 
 /** Blocks execution until config is read */
 void hold_your_horses()
@@ -545,12 +521,7 @@ static int my_assert_handler(char* msg, char* file, int line, int arg4)
 {
     uint32_t lr = read_lr();
 
-#ifdef CONFIG_DIGIC_678
-    // compiler warning on unused len
-    snprintf(assert_msg, sizeof(assert_msg),
-#else
     int len = snprintf(assert_msg, sizeof(assert_msg), 
-#endif
         "ASSERT: %s\n"
         "at %s:%d, %s:%x\n"
         "lv:%d mode:%d\n\n", 
@@ -558,13 +529,7 @@ static int my_assert_handler(char* msg, char* file, int line, int arg4)
         file, line, get_current_task_name(), lr,
         lv, shooting_mode
     );
-// SJE FIXME: assert handling is buggy on modern Digic.
-// Disable some of it here and do quick hack output:
-#ifdef CONFIG_DIGIC_678
-    uart_printf("[SJE] my_assert_msg: %s", assert_msg);
-#else
     backtrace_getstr(assert_msg + len, sizeof(assert_msg) - len);
-#endif
     request_crash_log(1);
     return old_assert_handler(msg, file, line, arg4);
 }
@@ -579,11 +544,6 @@ void ml_assert_handler(char* msg, char* file, int line, const char* func)
         file, line, func, get_current_task_name(), 
         lv, shooting_mode
     );
-// SJE FIXME: assert handling is buggy on modern Digic.
-// Disable some of it here and do quick hack output:
-#ifdef CONFIG_DIGIC_678
-    uart_printf("[SJE] ml_assert_msg: %s", assert_msg);
-#endif
     backtrace_getstr(assert_msg + len, sizeof(assert_msg) - len);
     request_crash_log(2);
 }
@@ -597,21 +557,9 @@ void ml_crash_message(char* msg)
 /* called before Canon's init_task */
 void boot_pre_init_task()
 {
-#if defined(CONFIG_HELLO_WORLD) || defined(CONFIG_DUMPER_BOOTFLAG)
-    // don't hook
-#else
-    #if defined(CONFIG_MMU_EARLY_REMAP)
-    // This only runs on one core, meaning cpu1 won't see MMU_EARLY patches.
-    // Digic 7 and 8 behave differently here and it looked like a lot of work
-    // to get D7 remapping on both cores.  This early remap so far only looks
-    // necessary for some kinds of debugging / testing work, you can remap
-    // after OS is initialised and do both cores on all cams then.
-    if (mmu_init() < 0)
-        DryosDebugMsg(0, 15, "ERROR doing mmu_init() in early context");
-    #endif
+#if !defined(CONFIG_HELLO_WORLD) && !defined(CONFIG_DUMPER_BOOTFLAG)
     // Install our task creation hooks
     qprint("[BOOT] installing task dispatch hook at "); qprintn((int)&task_dispatch_hook); qprint("\n");
-    DryosDebugMsg(0, 15, "replacing task_dispatch_hook");
     task_dispatch_hook = my_task_dispatch_hook;
     #ifdef CONFIG_TSKMON
     tskmon_init();
@@ -622,9 +570,6 @@ void boot_pre_init_task()
 /* called right after Canon's init_task, while their initialization continues in background */
 void boot_post_init_task(void)
 {
-#if defined(CONFIG_PLATFORM_POST_INIT)
-    platform_post_init();
-#endif
 #if defined(CONFIG_CRASH_LOG)
     // decompile TH_assert to find out the location
     old_assert_handler = (void*)MEM(DRYOS_ASSERT_HANDLER);
@@ -641,9 +586,7 @@ void boot_post_init_task(void)
         build_user
     );
 
-// kitor: on D678 this gets executed before value
-//        is updated with running fw version
-#if defined(CONFIG_ADDITIONAL_VERSION)
+#if !defined(CONFIG_NO_ADDITIONAL_VERSION)
     // Re-write the version string.
     // Don't use strcpy() so that this can be done
     // before strcpy() or memcpy() are located.
@@ -664,11 +607,6 @@ void boot_post_init_task(void)
     additional_version[13] = '\0';
 #endif
 
-    #ifdef FEATURE_VRAM_RGBA
-    while (!rgb_vram_preinit())
-        msleep(100);
-    #endif
-
     // wait for firmware to initialize
     while (!bmp_vram_raw())
         msleep(100);
@@ -686,3 +624,4 @@ void boot_post_init_task(void)
 
     return;
 }
+

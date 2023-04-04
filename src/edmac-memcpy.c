@@ -20,8 +20,8 @@ R 2-15
 W 3-8 10-15
 */
 #elif defined(CONFIG_650D) || defined(CONFIG_EOSM) || defined(CONFIG_700D) || defined(CONFIG_100D)
-uint32_t edmac_read_chan = 0x19;
-uint32_t edmac_write_chan = 0x13;
+uint32_t edmac_read_chan = 0x19;   //25
+uint32_t edmac_write_chan = 0x13;  //19
 //~ r 2 3 5 7 8 9 10 11-13
 //~ w 3 4 6 10 11-15
 #elif defined(CONFIG_60D)
@@ -46,6 +46,12 @@ uint32_t edmac_write_chan = 0x06;
 #elif defined(CONFIG_1100D)
 uint32_t edmac_read_chan = 0x19;
 uint32_t edmac_write_chan = 0x04;
+#elif defined(CONFIG_1200D)
+uint32_t edmac_read_chan = 0x19;
+uint32_t edmac_write_chan = 0x04;
+#elif defined(CONFIG_1300D)
+uint32_t edmac_read_chan = 0x19;  /* Read decimal: 26 */
+uint32_t edmac_write_chan = 0x04;  /* Write decimal: 4 */
 #else
 #error Please find some free EDMAC channels for your camera.
 #endif
@@ -83,7 +89,7 @@ static void edmac_memcpy_init()
     ASSERT(resLock);
 
     /* just to make sure we have this stub */
-    static void *AbortEDmac_check __attribute__((used)) = &AbortEDmac;
+   static int AbortEDmac_check __attribute__((used)) = &AbortEDmac;
 }
 
 INIT_FUNC("edmac_memcpy", edmac_memcpy_init);

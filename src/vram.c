@@ -75,7 +75,7 @@ static void vram_update_luts()
 }
 
 struct vram_info vram_lv = {
-    .pitch = 720 * 2, // UYVY is 2 bytes per pixel
+    .pitch = 720 * 2,
     .width = 720,
     .height = 480,
 };
@@ -137,7 +137,6 @@ void vram_params_set_dirty()
 }
 
 static uint32_t hd_size = 0;
-
 static void vram_params_update_if_dirty()
 {
     #ifdef REG_EDMAC_WRITE_LV_ADDR
@@ -154,8 +153,8 @@ static void vram_params_update_if_dirty()
         BMP_LOCK( 
             if (vram_params_dirty)
             {
-                _update_vram_params(); 
-                vram_params_dirty = 0;
+                 _update_vram_params(); 
+                 vram_params_dirty = 0; 
             }
         )
     }
@@ -275,93 +274,21 @@ void _update_vram_params()
     // we only know the HD buffer for now... let's try to pretend it can be used as LV :)
     vram_lv.width = 768; // real width is 1024 in yuv411, but ML code assumes yuv422
     vram_lv.height = 680;
-    vram_lv.pitch = vram_lv.width * 2;
+    vram_lv.pitch = vram_lv.width * 2;    
     os.x0 = 0;
     //~ os.y0 = 0;
-    os.y0 = lv ? 0 : 48;
+    os.y0 = lv ? 0 : 48; 
     os.x_ex = 720;
     //~ os.y_ex = 480;
-    os.y_ex = 480 - os.y0;
+    os.y_ex = 480 - os.y0;    
     os.x_max = os.x0 + os.x_ex;
     os.y_max = os.y0 + os.y_ex;
     os.off_43 = 0;
     os.off_169 = 0;
-    os.off_1610 = 0;
+    os.off_1610 = 0;     
     //~ os.off_169 = (os.y_ex - os.y_ex * 4/3 * 9/16) / 2;
     //~ os.off_1610 = (os.y_ex - os.y_ex * 4/3 * 10/16) / 2;
-#elif defined(CONFIG_200D) || defined(CONFIG_850D)
-    // SJE FIXME we should pull this from the DISP Vram struct or similar,
-    // at runtime.  At least for D678.
-    vram_lv.width = 736; // 720, but 16 pixels of noise after each line
-    // Do I need all of the following lines?  Nobody knows.
-    // This should probably be per cam, not bodged into a src/ file
-    vram_lv.height = 480;
-    vram_lv.pitch = vram_lv.width * 2;
-    os.x0 = 0;
-    os.y0 = 0;
-    os.x_ex = 720;
-    os.y_ex = 480;
-    os.x_max = os.x0 + os.x_ex;
-    os.y_max = os.y0 + os.y_ex;
-    os.off_43 = 0;
-    os.off_169 = 0;
-    os.off_1610 = 0;
-#elif defined(CONFIG_R)
-    // false, depends on Panel, HDMI, EVF and if HDMI is clean or not.
-    vram_lv.width = 1024;
-    vram_lv.height = 682;
-    vram_lv.pitch = vram_lv.width * 2;
-    os.x0 = 0;
-    os.y0 = 0;
-    os.x_ex = 720;
-    os.y_ex = 480;
-    os.x_max = os.x0 + os.x_ex;
-    os.y_max = os.y0 + os.y_ex;
-    os.off_43 = 0;
-    os.off_169 = 0;
-    os.off_1610 = 0;
-#elif defined(CONFIG_RP)
-    // false, depends on Panel, HDMI, EVF.
-    vram_lv.width = 736;
-    vram_lv.height = 480;
-    vram_lv.pitch = vram_lv.width * 2;
-    os.x0 = 0;
-    os.y0 = 0;
-    os.x_ex = 720;
-    os.y_ex = 480;
-    os.x_max = os.x0 + os.x_ex;
-    os.y_max = os.y0 + os.y_ex;
-    os.off_43 = 0;
-    os.off_169 = 0;
-    os.off_1610 = 0;
-#elif defined(CONFIG_M50)
-    // false, depends on Panel, HDMI, EVF.
-    vram_lv.width = 736;
-    vram_lv.height = 480;
-    vram_lv.pitch = vram_lv.width * 2;
-    os.x0 = 0;
-    os.y0 = 0;
-    os.x_ex = 720;
-    os.y_ex = 480;
-    os.x_max = os.x0 + os.x_ex;
-    os.y_max = os.y0 + os.y_ex;
-    os.off_43 = 0;
-    os.off_169 = 0;
-    os.off_1610 = 0;
-#elif defined(CONFIG_SX740)
-    // false, depends on Panel, HDMI.
-    vram_lv.width = 640;
-    vram_lv.height = 480;
-    vram_lv.pitch = vram_lv.width * 2;
-    os.x0 = 0;
-    os.y0 = 0;
-    os.x_ex = 720;
-    os.y_ex = 480;
-    os.x_max = os.x0 + os.x_ex;
-    os.y_max = os.y0 + os.y_ex;
-    os.off_43 = 0;
-    os.off_169 = 0;
-    os.off_1610 = 0;
+       
 #else
     #ifdef CONFIG_1100D
         vram_lv.width  = 720;
@@ -510,30 +437,16 @@ void yuv422_buffer_check()
 
 static inline void * get_yuv422buffer(int offset)
 {
-    // This function assumes the cam is triple-buffered, but not
-    // all cams are, hence the special casing.
-    //
-    // FIXME: make this cleaner, probably use platform/99D/internals.h
-    // to state how many buffers a given cam uses and make the selection
-    // logic more general.  Maybe mod arithmetic, not a switch.
-
     /* 5D3 1.2.3 has quad-buffered LV, so the old switch can't work */
     #if defined(CONFIG_1100D) || defined(CONFIG_6D) || defined(CONFIG_5D3_123)
     return (void*)CACHEABLE(YUV422_LV_BUFFER_DISPLAY_ADDR); // Good enough
     #else
     
-    if (YUV422_LV_BUFFER_DISPLAY_ADDR == 0 ||
-        YUV422_LV_BUFFER_DISPLAY_ADDR == 0x01000000) // Digic 7 uses this to mean uninit
+    if (YUV422_LV_BUFFER_DISPLAY_ADDR == 0)
     {
         /* YUV buffer not initialized, can't display anything here */
         return 0;
     }
-
-    // D678 are double-buffered for LV.  Can't put in similar prior block
-    // because we want the 0x01000000 check.
-    #ifdef CONFIG_DIGIC_678
-    return (void*)CACHEABLE(YUV422_LV_BUFFER_DISPLAY_ADDR);
-    #endif
 
     if (YUV422_LV_BUFFER_DISPLAY_ADDR == YUV422_LV_BUFFER_1)
        offset += 0;
@@ -570,12 +483,9 @@ static int fastrefresh_direction = 0;
 static unsigned old_buffer_pos = 0;
 
 void guess_fastrefresh_direction() {
-    if (old_buffer_pos == YUV422_LV_BUFFER_DISPLAY_ADDR)
-        return;
-    if (old_buffer_pos == YUV422_LV_BUFFER_1 && YUV422_LV_BUFFER_DISPLAY_ADDR == YUV422_LV_BUFFER_2)
-        fastrefresh_direction = 1;
-    if (old_buffer_pos == YUV422_LV_BUFFER_1 && YUV422_LV_BUFFER_DISPLAY_ADDR == YUV422_LV_BUFFER_3)
-        fastrefresh_direction = 0;
+    if (old_buffer_pos == YUV422_LV_BUFFER_DISPLAY_ADDR) return;
+    if (old_buffer_pos == YUV422_LV_BUFFER_1 && YUV422_LV_BUFFER_DISPLAY_ADDR == YUV422_LV_BUFFER_2) fastrefresh_direction = 1;
+    if (old_buffer_pos == YUV422_LV_BUFFER_1 && YUV422_LV_BUFFER_DISPLAY_ADDR == YUV422_LV_BUFFER_3) fastrefresh_direction = 0;
     old_buffer_pos = YUV422_LV_BUFFER_DISPLAY_ADDR;
 }
 
@@ -598,6 +508,12 @@ int first_video_clip = 1;
 
 struct vram_info * get_yuv422_vram()
 {
+    // SJE FIXME quick hack to diagnose crash in take_screenshot(),
+    // I think YUV422_LV_BUFFER_1 or similar are junk values
+    #if defined(CONFIG_200D) || defined(CONFIG_R) || defined(CONFIG_EOSRP)
+    return NULL;
+    #endif
+
     vram_params_update_if_dirty();
     
     if (digic_zoom_overlay_enabled()) // compute histograms and such on full-screen image
@@ -606,7 +522,7 @@ struct vram_info * get_yuv422_vram()
         return &vram_lv;
     }
 
-#ifdef CONFIG_DISPLAY_FILTERS
+    #ifdef CONFIG_DISPLAY_FILTERS
     int d = display_filter_enabled();
     if (d)
     {
@@ -616,9 +532,9 @@ struct vram_info * get_yuv422_vram()
         vram_lv.vram = (void*)(d == 1 ? dst_buf : src_buf);
         return &vram_lv;
     }
-#endif
+    #endif
 
-#ifdef CONFIG_500D // workaround for issue 1108 - zebras flicker on first clip
+    #ifdef CONFIG_500D // workaround for issue 1108 - zebras flicker on first clip
     
     if (lv && !is_movie_mode()) first_video_clip = 0; // starting in photo mode is OK
     
@@ -627,7 +543,7 @@ struct vram_info * get_yuv422_vram()
         vram_lv.vram = CACHEABLE(get_lcd_422_buf());
         return &vram_lv;
     }
-#endif
+    #endif
 
     extern int lv_paused;
     if (gui_state == GUISTATE_PLAYMENU || lv_paused || QR_MODE)

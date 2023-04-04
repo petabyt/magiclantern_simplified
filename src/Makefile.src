@@ -68,6 +68,13 @@ else ifndef ML_ENTRY_OBJ
 ML_ENTRY_OBJ = entry.o
 endif
 
+ifeq ($(CONFIG_DEBUG_INTERCEPT),y)
+CFLAGS += -DCONFIG_DEBUG_INTERCEPT
+ifndef ML_DM_SPY_OBJ
+ML_DM_SPY_OBJ = dm-spy.o
+endif       
+endif
+
 ifndef ML_BOOT_OBJ
 ML_BOOT_OBJ = boot-d45.o
 endif
@@ -75,6 +82,12 @@ endif
 ifndef ML_MINIMAL_OBJ
 ML_MINIMAL_OBJ = minimal.o
 endif
+
+ifeq ($(CONFIG_GDBSTUB),y)
+CFLAGS += -DCONFIG_GDB -DCONFIG_GDBSTUB
+endif
+
+
 
 ifeq ($(ML_SRC_PROFILE),minimal)
 ML_OBJS-y = \
@@ -119,10 +132,6 @@ ML_OBJS-y += \
 
 ML_SRC_OBJS = \
 	backtrace.o \
-	sgi.o \
-	cpu.o \
-	mmu_utils.o \
-	patch_mmu.o \
 	$(ML_BOOT_OBJ) \
 	$(ML_INIT_OBJ) \
 	fio-ml.o \
@@ -140,7 +149,6 @@ ML_SRC_OBJS = \
 	gui.o \
 	$(ML_PICSTYLE_OBJ) \
 	exmem.o \
-	compositor.o \
 	bmp.o \
 	rbf_font.o \
 	config.o \
@@ -191,9 +199,8 @@ ML_SRC_OBJS = \
 	raw.o \
 	chdk-dng.o \
 	edmac-memcpy.o \
-	cache_hacks.o \
 	patch.o \
-	cache.o
+
 
 ML_OBJS-y += $(ML_SRC_OBJS)
 
@@ -208,13 +215,6 @@ endif
 ifeq ($(CONFIG_QEMU),y)
 CFLAGS += -DCONFIG_QEMU
 endif # CONFIG_QEMU
-
-# same for CONFIG_MMIO_TRACE
-ifeq ($(CONFIG_MMIO_TRACE),y)
-CFLAGS += -DCONFIG_MMIO_TRACE
-ML_OBJS-y += \
-	io_trace.o
-endif
 
 ML_OBJS-y += $(ML_SRC_EXTRA_OBJS)
 
@@ -243,15 +243,11 @@ ML_SRC_REBOOT_OBJ = reboot.o \
 	disp_direct.o font_direct.o \
 	strlen.o strcmp.o gcc-libgcc.a \
 	cache.o \
-# footer.o must be the last object linked in autoexec.bin,
-# or xor_chk can fail due to unexpected global objects
-# being placed later than footer_magic
-ML_SRC_REBOOT_OBJ += \
 	footer.o
 endif
 
 clean::
-	$(call rm_files, magiclantern.bin autoexec autoexec.map location.map tmp.lds)
+	$(call rm_files, magiclantern.bin autoexec autoexec.map location.map)
 
 autoexec: $(ML_SRC_REBOOT_OBJ)
 	$(call build,LD,$(LD) \
@@ -278,15 +274,11 @@ autoexec-fir: $(ML_SRC_REBOOT_OBJ)
 clean::
 	$(call rm_files, autoexec-fir autoexec-fir.bin)
 
-# kitor: fix race condition on WSL by using temporary file
-# target itself creates magiclantern.lds which was at the same time overwritten
-# by grep redirected output.
 magiclantern.lds: $(SRC_DIR)/magiclantern.lds.S
-	$(call build,CPP,$(CPP) $(CFLAGS) $< | $(GREP) -v '^#' > tmp.lds)
-	$(MV) tmp.lds $@
+	$(call build,CPP,$(CPP) $(CFLAGS) $< | $(GREP) -v '^#' > $@)
 
 clean::
-	$(call rm_files, magiclantern.lds, tmp.lds)
+	$(call rm_files, magiclantern.lds)
 
 $(TOP_DIR)/tcc/libtccx.o: FORCE
 	+$(MAKE) -C $(TOP_DIR)/tcc
@@ -371,9 +363,7 @@ version.o: $(PLATFORM_DIR)/version.c
 $(PLATFORM_DIR)/version.c: FORCE
 	$(call build,"VERSION",echo "const char build_version[] = \"$(VERSION)\";") > $@
 #	@echo 'const char build_id[] = "'`hg id`'";' >> $@
-	@echo -n 'const char build_id[] = "' >> $@
-	$(BUILD_TOOLS_DIR)/git_summary.py >> $@
-	@echo '";' >> $@
+	@echo 'const char build_id[] = "'NO_HG'";' >> $@
 	@echo 'const char build_date[] ="'`$(DATE) "+%Y-%m-%d %H:%M:%S %Z"`'";' >> $@
 	@echo 'const char build_user[] = "'`whoami`@`hostname`'";'  >> $@
 
@@ -387,9 +377,6 @@ $(PLATFORM_DIR)/version.bin: FORCE
 	@echo 'Camera   : $(MODEL)' >> $@
 	@echo 'Firmware : $(FW_VERSION)' >> $@
 #	@echo 'Changeset: '`hg id` >> $@
-	@echo -n 'Commit: ' >> $@
-	$(BUILD_TOOLS_DIR)/git_summary.py >> $@
-	@echo '' >> $@
 	@echo 'Built on : '`date -u "+%Y-%m-%d %H:%M:%S"`' by '`whoami`@`hostname` >> $@
 	@echo '' >> $@
 #	@hg diff $(SRC_DIR)/ >> $@
@@ -437,3 +424,4 @@ FORCE:
 
 # fixme: better place for this?
 include $(BUILD_TOOLS_DIR)/Makefile
+

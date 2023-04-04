@@ -181,22 +181,14 @@ static void tskmon_stack_checker(struct task *next_task)
     tskmon_task_stack_check[id] = 0;
 
     /* at 1024 it gives warning for PowerMgr task */
-    const char *task_name = NULL;
     if (free < 256)
     {
-        task_name = next_task->name;
+        char* task_name = get_task_name_from_id(id);
         
         /* at 136 it gives warning for LightMeasure task (5D2/7D) - Canon allocated only 512 bytes for this task */
         #if defined(CONFIG_5D2) || defined(CONFIG_7D)
         if (streq(task_name, "LightMeasure") && free > 64)
             return;
-        #endif
-
-        #if defined(CONFIG_200D) // SJE I bet this is CONFIG_DIGIC_678 really, but untested
-        if (streq(task_name, "RTCMgr") && free > 128)
-            return; // RTCMgr uses 796 of 1024, 228 free
-        if (streq(task_name, "idle") && free > 64)
-            return; // in Play mode, uses 128 of 256, 128 free
         #endif
 
         bmp_printf(FONT(FONT_MED, free < 128 ? COLOR_RED : COLOR_WHITE, COLOR_BLACK), 0, 0, 
@@ -225,16 +217,6 @@ void tskmon_stack_get_max(uint32_t task_id, uint32_t *used, uint32_t *free)
     *used = tskmon_task_stack_used[task_id & (TSKMON_MAX_TASKS-1)];
 }
 
-#ifndef CONFIG_DIGIC_678
-// SJE this causes a nasty early crash on D678 so I'm removing it as much
-// as possible so it's very obvious not to use it.
-//
-// Reading from address 0 makes D678 angry, Error Exception loop early in boot.
-//
-// I think null_pointer_check() is trying to spot if an ML task writes
-// through a null pointer.  If so, this check is safe to remove, because
-// DryOS on these cams won't allow such a write.
-
 /* note: this function reads from a null pointer,
  * so we have to tell GCC that we really want that */
 static void __attribute__((optimize("-fno-delete-null-pointer-checks")))
@@ -257,8 +239,8 @@ null_pointer_check()
             *(int*)0 = value_at_zero;
 
             /* which task caused this error? */
-            uint32_t id = tskmon_last_task ? tskmon_last_task->taskId : (uint32_t)-1;
-            const char *task_name = tskmon_last_task ? tskmon_last_task->name : "?";
+            int id = tskmon_last_task ? tskmon_last_task->taskId : -1;
+            const char * task_name = tskmon_last_task ? tskmon_last_task->name : "?";
 
             // Ignore Canon null pointer bugs (let's hope they are harmless...)
             if (isupper(task_name[0]))
@@ -336,7 +318,6 @@ null_pointer_check()
         }
     }
 }
-#endif
 
 /* not sure why we have to specify the attribute here as well */
 /* if we don't, gcc inserts a UDF instruction at the end of tskmon_task_dispatch */
@@ -348,16 +329,11 @@ tskmon_task_dispatch(struct task * next_task)
     {
         /* we need full speed; these checks might cause a small performance hit */
         /* keep the null pointer check, as some Canon tasks may cause errors that should be ignored */
-#ifndef CONFIG_DIGIC_678
-    // SJE can't run this on D678, reading from address 0 triggers exception,
-    // presumably due to MMU, I believe this area is reserved, something to do
-    // with dual-core.
         null_pointer_check();
-#endif
         tskmon_last_task = next_task;
         return;
     }
-
+    
     if (sensor_cleaning)
     {
         /* 5D2 locks up, even with loop of of asm("nop"); maybe others too? */
@@ -366,10 +342,7 @@ tskmon_task_dispatch(struct task * next_task)
 
     tskmon_stack_checker(next_task);
     tskmon_update_timers();
-
-#ifndef CONFIG_DIGIC_678
     null_pointer_check();
-#endif
 
     if (!tskmon_last_task || next_task->taskId != tskmon_last_task->taskId)
     {

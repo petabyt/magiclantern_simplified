@@ -27,10 +27,19 @@
 #include "dryos.h"
 
 #ifdef CONFIG_DIGIC_678
-int get_task_info_by_id(int, int, void*);
-extern int _get_task_info_by_id(int, void*);
+	int get_task_info_by_id(int, int, void*);
+	extern int _get_task_info_by_id(int, void*);
 #else
-extern int get_task_info_by_id(int, int, void*);
+
+	#ifdef CONFIG_1300D
+		int get_task_info_by_id(int, void*);
+		extern int _get_task_info_by_id(int, void*);
+
+
+
+	#else
+		extern int is_taskid_valid(int, int, void*);
+	#endif
 #endif
 
 #ifdef CONFIG_DIGIC_678
@@ -73,32 +82,36 @@ struct task
         void           *entry;          // 0x0c, 4
         uint32_t        arg;            // 0x10, 4
         uint32_t        waitObjId;      // 0x14, 4
-        uint32_t            unknown_03; // 0x18, 4
+        uint32_t            unknown_01; // 0x18, 4
         uint32_t        stackStartAddr; // 0x1c, 4
         uint32_t        stackSize;      // 0x20, 4
         char           *name;           // 0x24, 4
-        uint32_t            unknown_04; // 0x28, 4
-        uint32_t            unknown_05; // 0x2c, 4
+        uint32_t            unknown_02; // 0x28, 4
+        uint32_t            unknown_03; // 0x2c, 4
         struct task    *self;           // 0x30, 4
-        uint32_t            unknown_06; // 0x34, 4
-        uint32_t            unknown_07; // 0x38, 4
-        uint32_t            unknown_08; // 0x3c, 4
-        uint32_t        taskId;         // 0x40, 4 // size 4, but low 16-bits are used as task index.
+        uint32_t            unknown_04; // 0x34, 4
+        uint32_t            unknown_05; // 0x38, 4
+        uint32_t            unknown_06; // 0x38, 4
+        uint32_t        taskId;         // 0x3c, 4 // size 4, but low 16-bits are used as task index.
                                                    // Comparison against taskId is done with full 32 in *some*
                                                    // APIs though, at least on D678, so the upper bits
                                                    // mean something different.
-#ifdef CONFIG_DIGIC_678 // Maybe D678X? Confirmed on 750D (D6), 200D (D7), M50, R, RP (D8)
-        uint32_t            unknown_09; // 0x44, 4
+#if defined(CONFIG_DIGIC_78) || defined(CONFIG_1300D) // Maybe D678X? Confirmed on 200D, M50, R
+        uint32_t           unknown_08; // 0x44, 4
 #endif
-        uint8_t             unknown_0a; // 0x44 / 0x48, 1
-        int8_t          currentState;   // 0x45 / 0x49, 1
-        uint8_t             unknown_0b; // 0x46 / 0x4a, 1
+
+
+
+        uint8_t             unknown_09;   // 0x44 / 0x48, 1
+
+        uint8_t         currentState;    // 0x45 / 0x49, 1
+        uint8_t             unknown_0b;   // 0x46 / 0x4a, 1
         uint8_t         yieldRequest;   // 0x47 / 0x4b, 1
-        uint8_t             unknown_0c; // 0x48 / 0x4c, 1
+        uint8_t             unknown_11; // 0x48 / 0x4c, 1
         uint8_t         sleepReason;    // 0x49 / 0x4d, 1
-        uint8_t             unknown_0d; // 0x4a / 0x4e, 1
-        uint8_t             unknown_0e; // 0x4b / 0x4f, 1
-#ifdef CONFIG_DIGIC_78 // Maybe D78X? DNE on D6, exists on D7, D8
+        uint8_t             unknown_12; // 0x4a / 0x4e, 1
+        uint8_t             unknown_13; // 0x4b / 0x4f, 1
+#ifdef CONFIG_DIGIC_78 // again, probably more broadly applicable but this needs testing
         uint8_t         cpu_requested; // 0x50, 1 // SJE working theory: which CPU can
                                                   // take the task.  0xff means any.
         uint8_t         cpu_assigned; // 0x51, 1  // Which CPU has taken the task,
@@ -109,14 +122,12 @@ struct task
         uint8_t             unknown_12; // 0x53, 1
         struct context  *context;       // 0x54, 4
         uint32_t            unknown_13; // 0x58, 4
-#else // D6 ends with *context
+#else
         struct context  *context;       // 0x4c, 4
 #endif
                                         // 0x50 / 0x5c // sizeof struct
 };
-
-
-#ifdef CONFIG_DIGIC_678
+#if defined(CONFIG_DIGIC_678) || defined(CONFIG_1300D)
 // NB, these fields get copied from a struct task,
 // and the effective types seems to change.  I guess this
 // is just down to alignment of the structs (the asm loads a byte,
@@ -126,28 +137,30 @@ struct task
 // it is currently only lightly tested.  I also haven't audited current ML
 // usage of this struct.  It has new fields now, which old code
 // might not populate, and DryOS might require, etc.
-//
-// kitor: Digic 6 is single core. Uses new structure, but without CPU fields.
-struct task_attr_str {
-  unsigned int state;
-  unsigned int pri;
-  unsigned int unknown_0b;
 
-  unsigned int entry;
-  unsigned int args;
-  unsigned int wait_id;
-  unsigned int flags;
-  unsigned int stack;
-  unsigned int size;
-  unsigned int used;
-#ifdef CONFIG_DIGIC_78
-  unsigned int cpu_requested;
-  unsigned int cpu_assigned;
+struct task_attr_str {
+  unsigned int state;           // 0x00
+  unsigned int pri;             // 0x04
+  unsigned int unknown_01;      // 0x08
+  unsigned int entry;           // 0x0c
+  unsigned int args;            // 0x10
+  unsigned int wait_id;         // 0x14
+  unsigned int flags;           // 0x18
+  unsigned int stack;           // 0x1c
+  unsigned int size;            // 0x20
+  unsigned int used;            // 0x24
+  unsigned int unknown_02;   // 0x28
+  unsigned int unknown_03;    // 0x2c
+  unsigned int context;         // 0x30
+#ifdef CONFIG_1300D
+  char *name;                   // 0x34
+  unsigned int unknown_04;      // 0x38
+#else
+
+  unsigned int unknown_04;      // 0x34
+  char *name;                   // 0x38
 #endif
-  unsigned int context;
-  unsigned int unknown_13;
-  char *name;
-}; // size = 0x34 (D6) 0x3c (D78)
+}; // size = 0x3c
 #else
 struct task_attr_str {
   unsigned int entry;
@@ -187,7 +200,7 @@ typedef int (*init_task_func)(int,int,int,int);
  * \internal
  */
 extern void
-create_init_task();
+create_init_task( void );
 
 /** Bootstrap a new task.
  * \internal

@@ -23,24 +23,19 @@ const char * get_task_name_from_id(int id)
 #if defined(CONFIG_VXWORKS)
 return "?";
 #endif
-    if(id < 0) {
+    if(id < 0)
+    {
         return "?";
     }
-    // This looks like returning local vars, but ISO C99 6.4.5.5 says
-    // string literals have "static storage duration", and 6.2.4.3
-    // defines that as "Its lifetime is the entire execution of the program
-    // and its stored value is initialized only once, prior to program startup"
-    //
-    // So it's okay.
+    
+    char* name = "?";
+    int c = id & 0xFF;
 
-    char *name = "?";
-    struct task_attr_str task_attr = {0};
-
-    int r = get_task_info_by_id(1, id & 0xff, &task_attr);
-    if (r == 0) {
-        if (task_attr.name != NULL) {
-            name = task_attr.name;
-        }
+    struct task_attr_str task_attr;
+    int r = get_task_info_by_id(c, &task_attr); // ok
+    if (r==0) {
+      if (task_attr.name!=0) name=task_attr.name;
+      else name="?";
     }
     return name;
 }
@@ -137,7 +132,7 @@ int task_check_stack()
 
     /* works, gives the same result as DryOS routine, so... let's just use the DryOS one
      *
-//#ifdef CONFIG_TSKMON
+    #ifdef CONFIG_TSKMON
     tskmon_stack_check(id);
     msleep(50); // wait until the task is rescheduled, so tskmon can check it
     uint32_t stack_used = 0;
@@ -145,10 +140,10 @@ int task_check_stack()
     tskmon_stack_get_max(id, &stack_used, &stack_free);
     bmp_printf(FONT_MED, 0, 0, "free: %d used: %d", stack_free, stack_used);
     return stack_free;
-//#elif !defined(CONFIG_VXWORKS)
+    #elif !defined(CONFIG_VXWORKS)
     */
     
-    int r = get_task_info_by_id(1, id, &task_attr);
+    int r = get_task_info_by_id(id, &task_attr);
     if (r == 0)
     {
         int free = task_attr.size - task_attr.used;
@@ -174,8 +169,7 @@ MENU_SELECT_FUNC(tasks_toggle_flags)
 
 MENU_UPDATE_FUNC(tasks_print)
 {
-    if (!info->can_custom_draw)
-        return;
+    if (!info->can_custom_draw) return;
 
     info->custom_drawing = CUSTOM_DRAW_THIS_MENU;
     
@@ -197,7 +191,7 @@ MENU_UPDATE_FUNC(tasks_print)
     {
         get_task_info(tasks[i], task_info);
         
-        char *name = (char *)task_info[1] + 1;
+        char* name = (char*) task_info[1]+1;
         char short_name[] = "             \0";
         memcpy(short_name, name, MIN(sizeof(short_name)-2, strlen(name)));
 
@@ -214,7 +208,7 @@ MENU_UPDATE_FUNC(tasks_print)
         bmp_printf(SHADOW_FONT(FONT(FONT_MED, mem_percent < 50 ? COLOR_WHITE : mem_percent < 90 ? COLOR_YELLOW : COLOR_RED, 40)), 
             x, y, "%s: p=%d m=%d%%", 
             short_name, task_info[2], mem_percent);
-        y += font_med.height - 1;
+        y += font_med.height-1;
         if (y > 460)
         {
             x += 360;
@@ -254,10 +248,11 @@ MENU_UPDATE_FUNC(tasks_print)
     y += font_med.height;
 
     int total_tasks = 0;
+
     for (task_id = 1; task_id <= (int)task_max; task_id++)
     {
-        r = get_task_info_by_id(1, task_id, &task_attr);
-        if (r == 0)
+	r = get_task_info_by_id(task_id, &task_attr);
+    if (r == 0)
         {
             total_tasks++;
 
@@ -322,7 +317,7 @@ MENU_UPDATE_FUNC(tasks_print)
                 task_id, short_name, task_attr.pri, task_attr.wait_id, mem_percent, 0, task_attr.state);
             #endif
 
-            #if defined(CONFIG_60D) || defined(CONFIG_7D) || defined(CONFIG_DIGIC_V) || defined(CONFIG_DIGIC_678)
+            #if defined(CONFIG_60D) || defined(CONFIG_7D) || defined(CONFIG_DIGIC_V)
             y += font_small.height - ((tasks_show_flags & 1) ? 1 : 0); // too many tasks - they don't fit on the screen :)
             #else
             y += font_small.height;
@@ -332,8 +327,6 @@ MENU_UPDATE_FUNC(tasks_print)
                 x += 360;
                 y = 10 + font_med.height;
             }
-            if (x > 710) // there is no more space, give up
-                break;
         }
     }
     bmp_printf(
@@ -349,52 +342,63 @@ MENU_UPDATE_FUNC(tasks_print)
 #include "gps.h"
 #endif
 
+static void leds_on()
+{
+    _card_led_on();
+    info_led_on();
+    delayed_call(20, leds_on, 0);
+}
+
+/* to refactor with CBR */
+extern int module_shutdown();
+
 static void ml_shutdown()
 {
-#ifdef CONFIG_RP
-    // FIXME: this should be promoted to a FEATURE flag,
-    // or the shutter close feature should be directly
-    // added here, or both:
-
-    extern void platform_pre_shutdown();
-    platform_pre_shutdown();
-#endif
-
     check_pre_shutdown_flag();
 #ifdef FEATURE_CROP_MODE_HACK
     movie_crop_hack_disable();
 #endif
     ml_shutdown_requested = 1;
     
-    info_led_on();
-    _card_led_on();
     restore_af_button_assignment_at_shutdown();
 #ifdef FEATURE_GPS_TWEAKS
     gps_tweaks_shutdown_hook();
 #endif    
     config_save_at_shutdown();
 #if defined(CONFIG_MODULES)
-    /* to refactor with CBR */
-    extern int module_shutdown();
     module_shutdown();
 #endif
-    info_led_on();
-    _card_led_on();
 }
 
 PROP_HANDLER(PROP_TERMINATE_SHUT_REQ)
 {
-    //bmp_printf(FONT_MED, 0, 0, "SHUT REQ %d ", buf[0]);
-    if (buf[0] == 0)  ml_shutdown();
+    /* 0=request, 3=execute, 4=cancel */
+    /* 3 appears too late for saving config files */
+    if (buf[0] == 0)
+    {
+        /* keep the LEDs on until shutdown completes */
+        delayed_call(20, leds_on, 0);
+
+        ml_shutdown();
+    }
 }
 
-#ifdef CONFIG_DIGIC_VIII //kitor: Confirmed R, RP, M50
-PROP_HANDLER(PROP_SHUTDOWN_REASON)
+PROP_HANDLER(PROP_ABORT)
 {
-    DryosDebugMsg(0, 15, "SHUTDOWN REASON %d", buf[0]);
-    if (buf[0] != 0)  ml_shutdown();
+    /* emergency stop - do not save properties */
+    /* -1 = init, 1 = trigger */
+
+    if (buf[0] == 1)
+    {
+        /* keep the LEDs on until shutdown completes */
+        delayed_call(20, leds_on, 0);
+
+        #if defined(CONFIG_MODULES)
+        /* if no hard crash, load the modules after taking the battery out */
+        module_shutdown();
+        #endif
+    }
 }
-#endif
 
 #if 0
 static int task_holding_bmp_lock = 0;
