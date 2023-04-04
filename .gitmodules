@@ -1,0 +1,9 @@
+[submodule "modules/mltetris"]
+	path = modules/mltetris
+	url = git@github.com:petabyt/mltetris.git
+[submodule "modules/mlt"]
+	path = modules/mlt
+	url = git@github.com:petabyt/mlt.git
+[submodule "modules/tetris"]
+	path = modules/tetris
+	url = git@github.com:petabyt/mltetris.git

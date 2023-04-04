@@ -70,7 +70,12 @@ def parse_args():
     return args
 
 def copy_good_modules(module_names, cam_dir, dest_dir):
-    modules = {Module(m) for m in module_names}
+    modules = set()
+    for m in module_names:
+        try:
+            modules.add(Module(m))
+        except:
+            print("Module " + m + " failed to build")
 
     # get ML exported symbols from current cam dir,
     # lines are of format:

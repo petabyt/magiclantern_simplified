@@ -86,6 +86,7 @@ static int cam_700d = 0;
 static int cam_60d = 0;
 static int cam_100d = 0;
 static int cam_1100d = 0;
+static int cam_1300d = 0;
 
 static int cam_5d3 = 0;
 static int cam_5d3_113 = 0;
@@ -594,7 +595,7 @@ static MENU_UPDATE_FUNC(resolution_update)
 
 static MENU_SELECT_FUNC(resolution_change_fine_value)
 {
-    if (!raw_video_enabled || !lv)
+    if (!raw_video_enabled)
     {
         return;
     }
@@ -1211,6 +1212,7 @@ static void hack_liveview(int unhack)
             cam_100d ? 0xFF542580 :
             cam_500d ? 0xFF2ABEF8 :
             cam_1100d ? 0xFF373384 :
+	    cam_eos_m ? 0xFF539C1C :
             /* ... */
             0;
         uint32_t dialog_refresh_timer_orig_instr = 0xe3a00032; /* mov r0, #50 */
@@ -2431,7 +2433,8 @@ static unsigned int raw_rec_update_preview(unsigned int ctx)
 
     raw_previewing = 1;
     raw_set_preview_rect(skip_x, skip_y, res_x, res_y, 1);
-    raw_force_aspect_ratio_1to1();
+
+    //raw_force_aspect_ratio_1to1();
 
     /* when recording, preview both full-size buffers,
      * to make sure it's not recording every other frame */
@@ -2484,6 +2487,7 @@ static unsigned int raw_rec_init()
     cam_100d  = is_camera("100D", "1.0.1");
     cam_500d  = is_camera("500D", "1.1.1");
     cam_1100d = is_camera("1100D", "1.0.5");
+    cam_1300d = is_camera("1300D", "1.1.0");
 
     cam_5d3_113 = is_camera("5D3",  "1.1.3");
     cam_5d3_123 = is_camera("5D3",  "1.2.3");

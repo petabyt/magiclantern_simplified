@@ -74,11 +74,7 @@ static int logo_arr[LOGO_ARR_LEN+1][2] = {{268,48}, {147,57}, {229,46}, {269,72}
 static element* new_elem(int type) {
     // allocate new elem
     element *new = malloc(sizeof(element));
-    if(!new)
-    {
-        DryosDebugMsg(0, 15, "arkanoid: malloc fail");
-        return NULL;
-    }
+    if(!new) return NULL;
     memset(new, 0, sizeof(element));
     new->type = type;
     
@@ -92,8 +88,7 @@ static element* new_elem(int type) {
     {
         // add next reference at the end of elems
         element *end = head;
-        while(end->next)
-            end = end->next;
+        while(end->next) end = end->next;
         end->next = new;
         
         // add previous reference
@@ -104,26 +99,10 @@ static element* new_elem(int type) {
 }
 
 static void delete_elem(element *e) {
-    if(e == head)
-    {
-        // new head becomes the next element
-        // e->prev will be NULL, avoid accessing it
-        if (head->next != NULL)
-            head = e->next;
-        head->prev = NULL;
-    }
-    else
-    {
-        if (e->next != NULL)
-        {
-            e->next->prev = e->prev;
-            e->prev->next = e->next;
-        }
-        else
-        { // last item in the list
-            e->prev->next = NULL;
-        }
-    }
+    e->next->prev = e->prev;
+    e->prev->next = e->next;
+    // if e was head => head is now the next on the right
+    if(e == head) head = e->next;
     free(e);
 }
 
@@ -134,23 +113,6 @@ static void reset_elems() {
 
 static void arkanoid_draw_elem(element * e, int x, int y, int color)
 {
-    if (x < 0) {
-        DryosDebugMsg(0, 15, "x was negative: %d", x);
-        return;
-    }
-    if (x >= 720) {
-        DryosDebugMsg(0, 15, "x was large: %d", x);
-        return;
-    }
-    if (y < 0) {
-        DryosDebugMsg(0, 15, "y was negative: %d", y);
-        return;
-    }
-    if (y >= 540) {
-        DryosDebugMsg(0, 15, "y was large: %d", y);
-        return;
-    }
-
     switch(e->type) {
         case ELEM_PAD:
             bmp_draw_rect_chamfer(color, x, y, e->w, e->h, 4, 0);
@@ -180,12 +142,6 @@ static void arkanoid_redraw()
 {
     ELEM_LOOP
     (
-        if (e == NULL)
-        {
-            DryosDebugMsg(0, 15, "arkanoid: e was NULL in redraw, should never happen!");
-            continue;
-        }
-
         // erase elements that changed their position (to minimize flicker)
         if (e->old_x != e->x || e->old_y != e->y)
         {
@@ -205,12 +161,6 @@ static void arkanoid_redraw()
     
     ELEM_LOOP
     (
-        if (e == NULL)
-        {
-            DryosDebugMsg(0, 15, "arkanoid: e was NULL in redraw, should never happen!");
-            continue;
-        }
-
         // draw the rest
         arkanoid_draw_elem(e, e->x, e->y, e->color);
         
@@ -232,23 +182,20 @@ static int last_delta() {
             return -1;
         case MODULE_KEY_WHEEL_UP:
         case MODULE_KEY_WHEEL_LEFT:
-            if(!big_step--)
-                last_key = 0;
+            if(!big_step--) last_key = 0;
             return -1;
         case MODULE_KEY_PRESS_RIGHT:
             return 1;
         case MODULE_KEY_WHEEL_RIGHT:
         case MODULE_KEY_WHEEL_DOWN:
-            if(!big_step--)
-                last_key = 0;
+            if(!big_step--) last_key = 0;
             return 1;
     }
     return 0;
 }
 
 static void fade(element *e, int fade_delta) {
-    if(!e)
-        return;
+    if(!e) return;
     e->fade_delta = fade_delta;
 }
 
@@ -272,21 +219,13 @@ static void generate_level() {
             }
             
             element *e = new_elem(ELEM_BRICK);
-            if(!e)
-                continue;
+            if(!e) continue;
             brick_count++; 
             
             while(i++<100)
             {
                 width = bfnt_char_get_width(i);
-                if (width > 0 && width < 100)
-                    break;
-            }
-            if (width == 0)
-            {
-                DryosDebugMsg(0, 15, "arkanoid: width 0");
-                width = 3; // SJE FIXME we later pass width - 2 to bmp_draw_rect_chamfer()
-                           // this is a quick hack to avoid underflow and crash
+                if (width > 0 && width < 100) break;
             }
             
             e->x = x;
@@ -299,8 +238,7 @@ static void generate_level() {
             x += e->w + 5;
         }
         
-        if((rand() % (level * 100)) < 95)
-            y += 22;
+        if((rand() % (level * 100)) < 95) y += 22;
     }
 }
 
@@ -310,10 +248,7 @@ static int FAST hit_test_test(element *a, element *b) {
             a->x <= b->x + b->w &&
             a->y + a->h >= b->y &&
             a->y <= b->y + b->h
-        )
-    {
-        return 1;
-    }
+        ) return 1;
     return 0;
 }
 
@@ -342,8 +277,7 @@ static void set_direction(element *e, int angle) {
 
 static element* new_ball() {
     element *e = new_elem(ELEM_BALL);
-    if(!e)
-        return NULL;
+    if(!e) return NULL;
     
     e->w = 10;
     e->h = 10;
@@ -359,19 +293,14 @@ static element* new_ball() {
 }
 
 static void handle_fades(element *e) {
-    if(e == NULL)
-        return;
-    if(e->fade_delta == 0)
-        return;
+    if(e->fade_delta == 0) return;
     
     e->fade += e->fade_delta;
     e->fade = COERCE(e->fade, 0, 100);
     e->color = COLOR_GRAY(e->fade);
     
-    if(e->fade == 0 || e->fade == 100)
-        e->fade_delta = 0;
-    if(e->fade == 0)
-        e->deleted = 1;
+    if(e->fade == 0 || e->fade == 100) e->fade_delta = 0;
+    if(e->fade == 0) e->deleted = 1;
 }
 
 // state transition, to be called only from arkanoid task
@@ -381,8 +310,7 @@ static void arkanoid_game_init() {
     reset_elems();
     
     element *p = new_elem(ELEM_PAD);
-    if(!p)
-        return;
+    if(!p) return;
     p->w = MIN(60 * level, 720);
     p->h = 20;
     p->x = 720 / 2 - p->w / 2;
@@ -394,8 +322,7 @@ static void arkanoid_game_init() {
     while(i++ < level)
     {
         element *e = new_ball();
-        if(!e)
-            continue;
+        if(!e) continue;
         ball_count++;
         
         int start = (720 / 2) - ( level * e->w + (level - 1) * e->w ) / 2;
@@ -403,8 +330,7 @@ static void arkanoid_game_init() {
         e->y = p->y - e->h;
         e->speed = 0;
         set_direction(e, -90);
-        if(ball_count == 5)
-            break;
+        if(ball_count == 5) break;
     }
     
     generate_level();
@@ -414,8 +340,7 @@ static void arkanoid_game_init() {
 static void arkanoid_game_start() {
     ELEM_LOOP
     (
-        if(e->type != ELEM_BALL)
-            continue;
+        if(e->type != ELEM_BALL) continue;
         e->speed = 5 + (level * 5);
     )
 }
@@ -423,10 +348,8 @@ static void arkanoid_game_start() {
 static void FAST hit_test(element *a) {
     ELEM_LOOP
     (
-        if(e->type != ELEM_PAD && e->type != ELEM_BRICK)
-            continue;
-        if(!hit_test_test(a, e))
-            continue;
+        if(e->type != ELEM_PAD && e->type != ELEM_BRICK) continue;
+        if(!hit_test_test(a, e)) continue;
         
         sound_event |= SOUND_EVENT_COLLISION;
         
@@ -449,10 +372,8 @@ static void FAST hit_test(element *a) {
                 ABS(ball_center - (e->y + e->h))
             );
             
-            if(x_len < y_len)
-                a->deltaX *= -1;
-            else
-                a->deltaY *= -1;
+            if(x_len < y_len)a->deltaX *= -1;
+            else a->deltaY *= -1;
             
             e->type = ELEM_FALL_BRICK;
             fade_set(e, -4, 70);
@@ -469,29 +390,25 @@ static void FAST hit_test(element *a) {
 // state transition, to be called only from arkanoid task
 static void arkanoid_logo() {
     // hide all leave balls and count balls
-    int balls = 0;
+    int bals = 0;
     ELEM_LOOP
     (
-        if(e->type != ELEM_BALL)
-            fade(e, -10);
-        else
-            balls++;
+        if(e->type != ELEM_BALL) fade(e, -10);
+        else bals++;
     )
     
     // add new balls
-    balls -= LOGO_ARR_LEN + 50;
-    while(balls++ < 0) {
+    bals -= LOGO_ARR_LEN + 50;
+    while(bals++ < 0) {
         element* e = new_ball();
-        if(!e)
-            continue;
+        if(!e) continue;
         fade(e, 5);
     }
     
     // logo assoc
     ELEM_LOOP
     (
-        if(e->type != ELEM_BALL)
-            continue;
+        if(e->type != ELEM_BALL) continue;
         e->c1 = -1;
     )
     
@@ -500,8 +417,7 @@ static void arkanoid_logo() {
         int dist = INT_MAX;
         ELEM_LOOP
         (
-            if(e->type != ELEM_BALL || e->c1 != -1)
-                continue;
+            if(e->type != ELEM_BALL || e->c1 != -1) continue;
             
             int manhattan = ABS(e->x - logo_arr[i][0]) + ABS(e->y - logo_arr[i][1]);
             if(manhattan < dist) {
@@ -535,40 +451,30 @@ static void arkanoid_present() {
 
 
 static void ml_ef(element* e) {
-    if(arkanoid_state != ARK_INRO)
-        return;
+    if(arkanoid_state != ARK_INRO) return;
     
     element* b = new_ball();
-    if(b)
-        fade(b, 2);
+    if(b) fade(b, 2);
     
-    if(e->fade == 100)
-        fade(e, -2);
+    if(e->fade == 100) fade(e, -2);
     
-    if(e->fade == 0)
-        arkanoid_next_state = ARK_PRESENT;
+    if(e->fade == 0) arkanoid_next_state = ARK_PRESENT;
 }
 
 static void present_ef(element* e) {
-    if(arkanoid_state != ARK_PRESENT)
-        return;
+    if(arkanoid_state != ARK_PRESENT) return;
     
     element* b = new_ball();
-    if(b)
-        fade(b, 3);
+    if(b) fade(b, 3);
 
-    if(e->fade == 100)
-        fade(e, -3);
+    if(e->fade == 100) fade(e, -3);
     
-    if(e->fade == 0)
-        arkanoid_next_state = ARK_LOGO;
+    if(e->fade == 0) arkanoid_next_state = ARK_LOGO;
 }
 
 static void ball_coerce(element* e) {
-    if(e->x < 0 || e->x > 720 - e->w)
-        e->deltaX *= -1;
-    if(e->y < 0 || e->y > 480 - e->h)
-        e->deltaY *= -1;
+    if(e->x < 0 || e->x > 720 - e->w) e->deltaX *= -1;
+    if(e->y < 0 || e->y > 480 - e->h) e->deltaY *= -1;
 
     COERCE_ABS(e->x, 0, 720 - e->w);
     COERCE_ABS(e->y, 0, 480 - e->h);
@@ -584,8 +490,7 @@ static void FAST ball_ef(element* e) {
         plusY = logo_arr[e->c1][1] - e->y;
         e->x += plusX * 0.1;
         e->y += plusY * 0.1;
-        if(!( rand() % 2))
-            set_direction(e, rand() % 360);
+        if(!( rand() % 2)) set_direction(e, rand() % 360);
     }
     
     // movement is computed as deltaX/Y (sin cos (-1, +1) ) * number of steps (speed)
@@ -630,8 +535,7 @@ static void FAST ball_ef(element* e) {
 }
 
 static void pad_ef(element* e) {
-    if(arkanoid_state != ARK_PLAY)
-        return;
+    if(arkanoid_state != ARK_PLAY) return;
     e->x = COERCE(e->x + last_delta() * e->speed, 0, 720 - e->w);
 }
 
@@ -655,8 +559,7 @@ static void arkanoid_task()
         }
         
         // if menu is not shown > quit
-        if (!gui_menu_shown())
-            goto quit;
+        if (!gui_menu_shown()) goto quit;
         
         // change the state
         if (arkanoid_next_state != arkanoid_state)
@@ -736,11 +639,6 @@ quit:
 }
 
 static MENU_SELECT_FUNC(arkanoid_start) {
-// SJE FIXME logging a known function address to work out
-// offset from crash logs, to get addr2line working on modules.
-// Would be nice to centralise this
-    DryosDebugMsg(0, 15, "arkanoid_task: 0x%x", arkanoid_task);
-    DryosDebugMsg(0, 15, "delete_elem: 0x%x", delete_elem);
     task_create("arkanoid_task", 0x1c, 0x1000, arkanoid_task, (void*)0);
 }
 
@@ -792,8 +690,7 @@ static unsigned int arkanoid_deinit()
 static unsigned int arkanoid_keypress(unsigned int key)
 {
     // if arakanoid is not running do nothing
-    if(!arkanoid_running)
-        return 1;
+    if(!arkanoid_running) return 1;
     
     // save last key to decide later what we should do
     last_key = key;

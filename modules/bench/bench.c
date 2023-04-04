@@ -13,8 +13,6 @@
 #include <powersave.h>
 #include <shoot.h>
 
-#include "cache.c"
-
 extern void peaking_benchmark();
 extern void menu_benchmark();
 
@@ -135,12 +133,9 @@ static struct menu_entry * bench_menu_entry(const char* entry_name)
     /* menu entries are not yet linked, so iterate as in array, not as in linked list */
     for(struct menu_entry * entry = bench_menu[0].children[0].children ; !MENU_IS_EOL(entry) ; entry++ )
     {
-        if (entry != NULL && entry->name != NULL && entry_name != NULL)
+        if (streq(entry->name, entry_name))
         {
-            if (streq(entry->name, entry_name))
-            {
-                return entry;
-            }
+            return entry;
         }
     }
     return 0;
